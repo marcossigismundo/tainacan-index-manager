@@ -157,6 +157,26 @@
 			<div v-if="initialLoading" class="tim-notice is-info"><span class="tim-loading"></span> {{ i18n.refresh }}…</div>\
 			<div v-else-if="errorMsg" class="tim-notice is-error">{{ errorMsg }}</div>\
 			<template v-else>\
+				<section :class="[\'tim-diagnostic\', \'is-\' + (diagnostics.severity || \'unknown\')]" v-if="diagnostics && diagnostics.findings && diagnostics.findings.length">\
+					<header class="tim-diagnostic-header">\
+						<span :class="[\'tim-status-pill\', diagPillClass(diagnostics.severity)]">{{ diagSeverityLabel(diagnostics.severity) }}</span>\
+						<h2>{{ diagnostics.headline }}</h2>\
+					</header>\
+					<ul class="tim-diagnostic-list">\
+						<li v-for="(f, idx) in diagnostics.findings" :key="idx" :class="\'is-\' + f.severity">\
+							<div class="tim-diagnostic-line">\
+								<span :class="[\'tim-status-pill\', diagPillClass(f.severity)]">{{ diagSeverityShort(f.severity) }}</span>\
+								<strong>{{ f.title }}</strong>\
+							</div>\
+							<p class="tim-diagnostic-msg">{{ f.message }}</p>\
+							<p class="tim-diagnostic-action" v-if="f.action">\
+								<span class="tim-action-label">Ação:</span> {{ f.action }}\
+								<a v-if="f.action_url" :href="f.action_url" class="tim-btn is-secondary tim-action-cta">Abrir</a>\
+							</p>\
+						</li>\
+					</ul>\
+				</section>\
+\
 				<div class="tim-cards">\
 					<div :class="[\'tim-card\', cardClass(snapshot.overall_status)]">\
 						<span class="tim-card-label">{{ i18n.overview }}</span>\
@@ -351,7 +371,10 @@
 \
 				<div class="tim-section">\
 					<h2>{{ i18n.elasticpress }}</h2>\
-					<p v-if="!elasticpress.active" class="tim-muted">ElasticPress não está ativo neste site.</p>\
+					<div v-if="!elasticpress.active" class="tim-muted">\
+						<p>O ElasticPress <strong>não está instalado/ativo</strong> neste site — <em>este é um cenário suportado</em>.</p>\
+						<p>O Tainacan Index Manager está operando com o indexador próprio, com mappings otimizados para português brasileiro e cobertura específica de metadados Tainacan. Se um dia o ElasticPress for ativado, este plugin detecta automaticamente e passa a operar em modo somente leitura sobre ele.</p>\
+					</div>\
 					<div v-else>\
 						<p><strong>Versão:</strong> {{ elasticpress.version || \'—\' }}</p>\
 						<p><strong>Host:</strong> <code>{{ elasticpress.host || \'—\' }}</code></p>\
@@ -393,6 +416,7 @@
 				logs: [],
 				alerts: [],
 				elasticpress: { active: false },
+				diagnostics: { severity: 'unknown', headline: '', findings: [] },
 				metrics: { window: {}, queue: {}, sparkline: { indexed: [], failed: [], duration: [], queue: [] }, summary_lifetime_indexed: 0, summary_lifetime_failed: 0, summary_lifetime_skipped: 0, summary_lifetime_dropped: 0, summary_lifetime_batches: 0, distribution_total: 0 },
 				failureTop: [],
 				poller: null,
@@ -482,6 +506,27 @@
 				if (s >= 80) return 'is-warning';
 				return 'is-critical';
 			},
+			diagPillClass: function (s) {
+				if (s === 'ok')       return 'tim-green';
+				if (s === 'info')     return 'tim-unknown';
+				if (s === 'warning')  return 'tim-yellow';
+				if (s === 'critical') return 'tim-red';
+				return 'tim-unknown';
+			},
+			diagSeverityLabel: function (s) {
+				if (s === 'ok')       return 'TUDO CERTO';
+				if (s === 'info')     return 'INFORMATIVO';
+				if (s === 'warning')  return 'ATENÇÃO';
+				if (s === 'critical') return 'AÇÃO IMEDIATA';
+				return '—';
+			},
+			diagSeverityShort: function (s) {
+				if (s === 'ok')       return 'OK';
+				if (s === 'info')     return 'INFO';
+				if (s === 'warning')  return 'ATENÇÃO';
+				if (s === 'critical') return 'CRÍTICO';
+				return '—';
+			},
 			logLevelClass: function (l) {
 				if (l === 'critical' || l === 'error') return 'tim-red';
 				if (l === 'warning') return 'tim-yellow';
@@ -512,7 +557,8 @@
 						api('GET', '/alerts'),
 						api('GET', '/elasticpress'),
 						api('GET', '/logs?per_page=15'),
-						api('GET', '/metrics?window=10')
+						api('GET', '/metrics?window=10'),
+						api('GET', '/diagnostics')
 					]);
 				}).then(function (results) {
 					self.collections  = results[0] || { rows: [] };
@@ -520,6 +566,7 @@
 					self.elasticpress = results[2] || { active: false };
 					self.logs         = (results[3] && results[3].rows) || [];
 					self.applyMetrics(results[4] || {});
+					self.diagnostics  = results[5] || self.diagnostics;
 				}).catch(function (err) {
 					self.errorMsg = err.message || 'Erro ao carregar dados.';
 				}).finally(function () {
@@ -537,16 +584,17 @@
 					api('GET', '/health'),
 					api('GET', '/alerts'),
 					api('GET', '/metrics?window=10'),
-					api('GET', '/index/state')
+					api('GET', '/index/state'),
+					api('GET', '/diagnostics')
 				]).then(function (results) {
 					self.snapshot = results[0] || self.snapshot;
 					self.alerts   = (results[1] && results[1].alerts) || [];
 					self.applyMetrics(results[2] || {});
-					// /index/state surfaces fresh queue size + auto state.
 					if (results[3] && typeof results[3].queue_size === 'number') {
 						self.metrics.queue = self.metrics.queue || {};
 						self.metrics.queue.size = results[3].queue_size;
 					}
+					self.diagnostics = results[4] || self.diagnostics;
 				}).catch(function () { /* silent: next tick retries */ });
 			},
 			applyMetrics: function (payload) {

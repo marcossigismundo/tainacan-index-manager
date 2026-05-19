@@ -4,7 +4,7 @@ Tags: tainacan, elasticsearch, opensearch, elasticpress, search, indexing
 Requires at least: 6.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.1.4
+Stable tag: 1.1.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -49,6 +49,17 @@ Não. O plugin pode operar com o indexador próprio. Se o ElasticPress estiver a
 A busca degrada automaticamente para SQL, um alerta é levantado e o evento é registrado nos logs.
 
 == Changelog ==
+
+= 1.1.5 =
+* Nova caixa de **Diagnóstico** no topo do painel: avalia conectividade, índice, cluster, latência,
+  cobertura, fila, taxa de sucesso e estado do indexador e produz um texto por finding, em PT-BR,
+  com a ação recomendada (e link para "Configurações" quando aplicável).
+* A severidade global é o pior achado: "Tudo certo", "Informativo", "Atenção", ou "Ação imediata".
+* Em instalação com 1 nó (single-node), Cluster YELLOW agora é classificado como `info` ("é esperado")
+  em vez de `warning` — ajusta o tom para ambientes de desenvolvimento e institucionais menores.
+* Refeita a seção ElasticPress: quando o plugin não está ativo, a mensagem deixa de soar como problema
+  e explica que o cenário é suportado (o indexador próprio está em operação).
+* Nova rota REST `/diagnostics` (read-only, requer `manage_options`).
 
 = 1.1.4 =
 * Diagnóstico de falhas do `_bulk`: o `Indexer` agora **extrai e exibe o motivo real** retornado pelo

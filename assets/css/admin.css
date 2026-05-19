@@ -346,6 +346,77 @@
 	color: #298596;
 }
 
+/* Diagnostic box (top-of-dashboard "what to do next" panel) */
+.tainacan-idxmgr-wrap .tim-diagnostic {
+	background: #fff;
+	border: 1px solid #e0e0e3;
+	border-radius: 6px;
+	padding: 1rem 1.25rem;
+	margin-bottom: 1.25rem;
+	border-left-width: 5px;
+}
+.tainacan-idxmgr-wrap .tim-diagnostic.is-ok       { border-left-color: #2ec27e; }
+.tainacan-idxmgr-wrap .tim-diagnostic.is-info     { border-left-color: #298596; }
+.tainacan-idxmgr-wrap .tim-diagnostic.is-warning  { border-left-color: #f5c211; }
+.tainacan-idxmgr-wrap .tim-diagnostic.is-critical { border-left-color: #e01b24; }
+
+.tainacan-idxmgr-wrap .tim-diagnostic-header {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	margin-bottom: 0.5rem;
+}
+.tainacan-idxmgr-wrap .tim-diagnostic-header h2 {
+	margin: 0;
+	font-size: 1.05rem;
+	color: #1d1d1d;
+}
+.tainacan-idxmgr-wrap .tim-diagnostic-list {
+	list-style: none;
+	padding: 0;
+	margin: 0.5rem 0 0;
+}
+.tainacan-idxmgr-wrap .tim-diagnostic-list > li {
+	padding: 0.65rem 0;
+	border-bottom: 1px solid #f0f0f1;
+}
+.tainacan-idxmgr-wrap .tim-diagnostic-list > li:last-child {
+	border-bottom: none;
+}
+.tainacan-idxmgr-wrap .tim-diagnostic-line {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	margin-bottom: 0.25rem;
+}
+.tainacan-idxmgr-wrap .tim-diagnostic-line strong {
+	color: #1d1d1d;
+	font-size: 0.95rem;
+}
+.tainacan-idxmgr-wrap .tim-diagnostic-msg {
+	margin: 0 0 0.35rem;
+	font-size: 0.88rem;
+	color: #3d3d3d;
+}
+.tainacan-idxmgr-wrap .tim-diagnostic-action {
+	margin: 0;
+	font-size: 0.85rem;
+	color: #444;
+	background: #f7f9fa;
+	padding: 0.5rem 0.7rem;
+	border-radius: 4px;
+}
+.tainacan-idxmgr-wrap .tim-action-label {
+	font-weight: 600;
+	color: #298596;
+	margin-right: 0.25rem;
+}
+.tainacan-idxmgr-wrap .tim-action-cta {
+	margin-left: 0.5rem;
+	padding: 0.2rem 0.6rem;
+	font-size: 0.78rem;
+}
+
 .tainacan-idxmgr-wrap .tim-error-list {
 	list-style: disc;
 	margin: 0.4rem 0 0 1.2rem;

@@ -3,7 +3,7 @@
  * Plugin Name:       Tainacan Index Manager
  * Plugin URI:        https://github.com/marcossigismundo/tainacan-index-manager
  * Description:       Monitora a saúde da busca, integra Tainacan ao Elasticsearch/OpenSearch (via ElasticPress quando disponível, com indexador próprio em fallback) e oferece painel de integridade do índice integrado ao Tainacan.
- * Version:           1.1.4
+ * Version:           1.1.5
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Tested up to:      6.9
@@ -19,7 +19,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'TAINACAN_INDEX_MANAGER_VERSION', '1.1.4' );
+define( 'TAINACAN_INDEX_MANAGER_VERSION', '1.1.5' );
 define( 'TAINACAN_INDEX_MANAGER_FILE', __FILE__ );
 define( 'TAINACAN_INDEX_MANAGER_DIR', plugin_dir_path( __FILE__ ) );
 define( 'TAINACAN_INDEX_MANAGER_URL', plugin_dir_url( __FILE__ ) );

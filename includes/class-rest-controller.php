@@ -28,6 +28,7 @@ final class REST_Controller {
 	private Logger $logger;
 	private Alerts $alerts;
 	private Indexer_Metrics $metrics;
+	private Diagnostics $diagnostics;
 
 	public function __construct(
 		Settings $settings,
@@ -38,7 +39,8 @@ final class REST_Controller {
 		ElasticPress_Integration $elasticpress,
 		Logger $logger,
 		Alerts $alerts,
-		Indexer_Metrics $metrics
+		Indexer_Metrics $metrics,
+		Diagnostics $diagnostics
 	) {
 		$this->settings      = $settings;
 		$this->health        = $health;
@@ -49,6 +51,7 @@ final class REST_Controller {
 		$this->logger        = $logger;
 		$this->alerts        = $alerts;
 		$this->metrics       = $metrics;
+		$this->diagnostics   = $diagnostics;
 	}
 
 	public function register(): void {
@@ -207,6 +210,12 @@ final class REST_Controller {
 		register_rest_route( self::NAMESPACE, '/alerts/clear', array(
 			'methods'             => \WP_REST_Server::CREATABLE,
 			'callback'            => array( $this, 'rest_clear_alerts' ),
+			'permission_callback' => $auth,
+		) );
+
+		register_rest_route( self::NAMESPACE, '/diagnostics', array(
+			'methods'             => \WP_REST_Server::READABLE,
+			'callback'            => array( $this, 'rest_get_diagnostics' ),
 			'permission_callback' => $auth,
 		) );
 
@@ -404,6 +413,10 @@ final class REST_Controller {
 	public function rest_clear_alerts(): \WP_REST_Response {
 		$this->alerts->clear_all();
 		return rest_ensure_response( array( 'ok' => true ) );
+	}
+
+	public function rest_get_diagnostics(): \WP_REST_Response {
+		return rest_ensure_response( $this->diagnostics->report() );
 	}
 
 	public function rest_get_metrics( \WP_REST_Request $req ): \WP_REST_Response {
