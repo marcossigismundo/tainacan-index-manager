@@ -1,0 +1,54 @@
+=== Tainacan Index Manager ===
+Contributors: marcossigismundo
+Tags: tainacan, elasticsearch, opensearch, elasticpress, search, indexing
+Requires at least: 6.0
+Tested up to: 6.9
+Requires PHP: 7.4
+Stable tag: 1.0.0
+License: GPLv2 or later
+License URI: https://www.gnu.org/licenses/gpl-2.0.html
+
+Painel de saúde da busca, monitoramento de Elasticsearch/OpenSearch, integração com ElasticPress e indexador próprio para repositórios Tainacan.
+
+== Description ==
+
+O Tainacan Index Manager integra-se ao Tainacan e oferece um painel completo para acompanhar a saúde da busca em grandes repositórios digitais.
+
+Recursos:
+
+* Painel "Tainacan > Saúde da Busca" com cards de status, indicadores e tabela de cobertura por coleção.
+* Cliente seguro para Elasticsearch/OpenSearch baseado em wp_remote_* (Basic Auth ou API Key).
+* Monitoramento periódico (WP-Cron) de cluster_health, índices e divergência entre Tainacan e o índice.
+* Detecção automática do ElasticPress; quando ativo, o plugin opera em modo somente leitura sobre ele.
+* Indexador próprio em fallback, com mappings/analyzers otimizados para português brasileiro, processamento em lote, pausar/retomar/cancelar.
+* Reescrita opcional da busca do WordPress/Tainacan para usar o índice, com fallback automático para SQL quando o Elasticsearch falhar.
+* Sistema de alertas (painel + e-mail) com classificação informativo/atenção/crítico.
+* Tabela própria de logs (dbDelta), com retenção configurável.
+* REST API protegida por nonce e cookie auth.
+
+== Installation ==
+
+1. Faça upload da pasta `tainacan-index-manager` para `wp-content/plugins/`.
+2. Ative o plugin no painel de Plugins do WordPress.
+3. Acesse **Tainacan > Configurações de Indexação** e informe URL/credenciais do seu Elasticsearch ou OpenSearch.
+4. Clique em **Testar conexão** e depois em **Criar índice**.
+5. Use **Indexar tudo** para popular o índice e abra **Tainacan > Saúde da Busca** para acompanhar.
+
+== Frequently Asked Questions ==
+
+= O plugin funciona com Elasticsearch e OpenSearch? =
+
+Sim. Os endpoints utilizados (`/_cluster/health`, `/_stats`, `/_doc`, `/_bulk`, `/_search`, `/_count`, `/_refresh`) são compatíveis com ambos.
+
+= Preciso do ElasticPress? =
+
+Não. O plugin pode operar com o indexador próprio. Se o ElasticPress estiver ativo, o plugin se integra a ele em modo somente leitura.
+
+= O que acontece se o Elasticsearch ficar offline? =
+
+A busca degrada automaticamente para SQL, um alerta é levantado e o evento é registrado nos logs.
+
+== Changelog ==
+
+= 1.0.0 =
+* Versão inicial: painel de saúde, indexador próprio, integração com ElasticPress, alertas, logs, fallback SQL.
