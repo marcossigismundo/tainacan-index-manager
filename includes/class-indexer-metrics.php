@@ -36,16 +36,18 @@ final class Indexer_Metrics {
 	 */
 	private function defaults(): array {
 		return array(
-			'runs'             => array(),
-			'lifetime_indexed' => 0,
-			'lifetime_failed'  => 0,
-			'lifetime_skipped' => 0,
-			'lifetime_dropped' => 0,
-			'lifetime_batches' => 0,
-			'peak_queue_size'  => 0,
-			'failure_top'      => array(),
-			'first_run_ts'     => 0,
-			'last_run_ts'      => 0,
+			'runs'              => array(),
+			'lifetime_indexed'  => 0,
+			'lifetime_failed'   => 0,
+			'lifetime_skipped'  => 0,
+			'lifetime_dropped'  => 0,
+			'lifetime_batches'  => 0,
+			'peak_queue_size'   => 0,
+			'failure_top'       => array(),
+			'last_error_summary' => array(),
+			'last_error_ts'      => 0,
+			'first_run_ts'       => 0,
+			'last_run_ts'        => 0,
 		);
 	}
 
@@ -116,6 +118,17 @@ final class Indexer_Metrics {
 			}
 			arsort( $top, SORT_NUMERIC );
 			$doc['failure_top'] = array_slice( $top, 0, self::FAILURE_TOP_N, true );
+		}
+
+		// Latest bulk error breakdown (ES "type" → count, sample reason).
+		// Replaced on every run — the dashboard wants "what's failing now",
+		// not a historical roll-up.
+		if ( ! empty( $run['error_summary'] ) && is_array( $run['error_summary'] ) ) {
+			$doc['last_error_summary'] = $run['error_summary'];
+			$doc['last_error_ts']      = $entry['ts'];
+		} elseif ( 0 === $entry['failed'] ) {
+			// All-clear: wipe stale error info so the panel reflects the new run.
+			$doc['last_error_summary'] = array();
 		}
 
 		update_option( self::OPTION_KEY, $doc, false );
@@ -236,10 +249,12 @@ final class Indexer_Metrics {
 				'eta_seconds'   => $eta_seconds,
 				'eta_human'     => $eta_seconds !== null ? $this->humanize_seconds( $eta_seconds ) : null,
 			),
-			'failure_top'  => $doc['failure_top'] ?? array(),
-			'first_run_ts' => (int) $doc['first_run_ts'],
-			'last_run_ts'  => (int) $doc['last_run_ts'],
-			'sparkline'    => $sparkline,
+			'failure_top'        => $doc['failure_top'] ?? array(),
+			'last_error_summary' => $doc['last_error_summary'] ?? array(),
+			'last_error_ts'      => (int) ( $doc['last_error_ts'] ?? 0 ),
+			'first_run_ts'       => (int) $doc['first_run_ts'],
+			'last_run_ts'        => (int) $doc['last_run_ts'],
+			'sparkline'          => $sparkline,
 		);
 	}
 

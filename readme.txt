@@ -4,7 +4,7 @@ Tags: tainacan, elasticsearch, opensearch, elasticpress, search, indexing
 Requires at least: 6.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.1.3
+Stable tag: 1.1.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -49,6 +49,20 @@ Não. O plugin pode operar com o indexador próprio. Se o ElasticPress estiver a
 A busca degrada automaticamente para SQL, um alerta é levantado e o evento é registrado nos logs.
 
 == Changelog ==
+
+= 1.1.4 =
+* Diagnóstico de falhas do `_bulk`: o `Indexer` agora **extrai e exibe o motivo real** retornado pelo
+  Elasticsearch (campo `error.type` + `error.reason`, drillando em `caused_by.reason` quando presente).
+  Agrupa por tipo de erro, gera uma entrada de log `error` por tipo por lote (volume limitado) e expõe um
+  resumo na resposta de `/metrics`. O painel mostra uma nova seção "Motivo das falhas no último lote" com
+  contagem por tipo e o detalhe completo do ES em `<details>`.
+* Corrige falha sistemática de indexação causada por valores `false`/`null` em campos tipados do mapping
+  (`permalink`, `thumbnail` como `keyword`; `date_created`, `date_modified` como `date`). Posts em rascunho
+  ou sem thumbnail faziam `get_permalink()` / `get_the_post_thumbnail_url()` retornar `false`, e o ES
+  rejeitava o documento inteiro com `mapper_parsing_exception`. Agora:
+  - strings vazias substituem `false` em `permalink` e `thumbnail`;
+  - campos de data são **omitidos** do documento quando WP não consegue produzir uma string ISO 8601
+    válida (ES aceita ausência, mas rejeita `false`/`null` em campo `date`).
 
 = 1.1.3 =
 * Corrige flood de logs do canal `alert`. Desde 1.1.2 o painel passou a chamar `reevaluate_alerts()`

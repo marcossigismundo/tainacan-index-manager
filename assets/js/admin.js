@@ -265,6 +265,16 @@
 						</div>\
 					</div>\
 \
+					<div class="tim-notice is-error" v-if="lastErrorRows.length">\
+						<strong>Motivo das falhas no último lote</strong>\
+						<ul class="tim-error-list">\
+							<li v-for="er in lastErrorRows" :key="er.type">\
+								<strong>{{ er.type }}</strong> &mdash; {{ er.count }} ocorrência(s)\
+								<details v-if="er.sample_reason"><summary>ver detalhe do Elasticsearch</summary><pre class="tim-code">{{ er.sample_reason }}</pre></details>\
+							</li>\
+						</ul>\
+					</div>\
+\
 					<div class="tim-row tim-row-2">\
 						<div class="tim-stack-bar" v-if="metrics.distribution_total > 0">\
 							<h3>Distribuição (lifetime)</h3>\
@@ -415,6 +425,19 @@
 				var peak = (this.metrics && this.metrics.queue && this.metrics.queue.peak_observed) || 0;
 				return Math.max(peak, this.currentQueueSize);
 			},
+			lastErrorRows: function () {
+				var sum = this.metrics && this.metrics.last_error_summary;
+				if (!sum || typeof sum !== 'object') return [];
+				return Object.keys(sum).map(function (type) {
+					var info = sum[type] || {};
+					return {
+						type: type,
+						count: Number(info.count) || 0,
+						sample_reason: info.sample_reason || '',
+						sample_id: Number(info.sample_id) || 0
+					};
+				}).sort(function (a, b) { return b.count - a.count; });
+			},
 			autoIndexingHint: function () {
 				if (this.currentQueueSize <= 0) return '';
 				if (this.snapshot && this.snapshot.last_index_run_ts > 0) return '';
@@ -534,6 +557,8 @@
 					window: s.window || {},
 					queue: Object.assign({ size: payload.queue_size || 0 }, s.queue || {}),
 					sparkline: s.sparkline || { indexed: [], failed: [], duration: [], queue: [] },
+					last_error_summary: s.last_error_summary || {},
+					last_error_ts: s.last_error_ts || 0,
 					summary_lifetime_indexed: lifetime.indexed || 0,
 					summary_lifetime_failed:  lifetime.failed || 0,
 					summary_lifetime_skipped: lifetime.skipped || 0,

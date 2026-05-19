@@ -204,8 +204,9 @@ final class Indexer {
 			++$built;
 		}
 
-		$indexed = 0;
-		$failed  = array();
+		$indexed         = 0;
+		$failed          = array();
+		$error_summary   = array(); // type => array('count' => N, 'sample_reason' => string, 'sample_id' => int)
 
 		if ( ! empty( $lines ) ) {
 			$res = $this->client->bulk( $lines );
@@ -231,12 +232,50 @@ final class Indexer {
 						if ( $failed_id > 0 ) {
 							$failed[] = $failed_id;
 						}
+
+						$err_obj = is_array( $op['error'] ) ? $op['error'] : array( 'type' => 'unknown', 'reason' => (string) $op['error'] );
+						$type    = isset( $err_obj['type'] ) ? (string) $err_obj['type'] : 'unknown';
+						$reason  = isset( $err_obj['reason'] ) ? (string) $err_obj['reason'] : '';
+						// Drill into caused_by if present — that's where the actual diagnostic lives.
+						if ( isset( $err_obj['caused_by']['reason'] ) ) {
+							$reason .= ' [caused_by: ' . (string) $err_obj['caused_by']['reason'] . ']';
+						}
+						if ( ! isset( $error_summary[ $type ] ) ) {
+							$error_summary[ $type ] = array(
+								'count'         => 0,
+								'sample_reason' => $reason,
+								'sample_id'     => $failed_id,
+							);
+						}
+						++$error_summary[ $type ]['count'];
 					} else {
 						++$indexed;
 					}
 				}
 			} else {
 				$indexed = $built;
+			}
+		}
+
+		// Surface the actual ES error to logs so the dashboard isn't a black box.
+		// One log line per error type per batch — bounded volume even at scale.
+		if ( ! empty( $error_summary ) ) {
+			foreach ( $error_summary as $type => $info ) {
+				$this->logger->error(
+					Logger::CHAN_INDEXER,
+					sprintf(
+						/* translators: %1$d count, %2$s ES error type */
+						__( '%1$d itens rejeitados pelo Elasticsearch (%2$s).', 'tainacan-index-manager' ),
+						(int) $info['count'],
+						$type
+					),
+					array(
+						'count'         => (int) $info['count'],
+						'error_type'    => $type,
+						'sample_reason' => $info['sample_reason'],
+						'sample_id'     => (int) $info['sample_id'],
+					)
+				);
 			}
 		}
 
@@ -269,16 +308,17 @@ final class Indexer {
 		$duration_ms = (int) round( ( microtime( true ) - $start_ts ) * 1000 );
 		$this->settings->mark_timestamp( 'last_index_run_ts' );
 		$this->metrics->record_run( array(
-			'ts'           => time(),
-			'duration_ms'  => $duration_ms,
-			'built'        => $built,
-			'indexed'      => $indexed,
-			'failed'       => count( $failed ),
-			'skipped'      => count( $skipped ),
-			'dropped'      => $dropped,
-			'queue_before' => $queue_before,
-			'queue_after'  => $remaining,
-			'failed_ids'   => $failed,
+			'ts'            => time(),
+			'duration_ms'   => $duration_ms,
+			'built'         => $built,
+			'indexed'       => $indexed,
+			'failed'        => count( $failed ),
+			'skipped'       => count( $skipped ),
+			'dropped'       => $dropped,
+			'queue_before'  => $queue_before,
+			'queue_after'   => $remaining,
+			'failed_ids'    => $failed,
+			'error_summary' => $error_summary,
 		) );
 		$this->logger->info(
 			Logger::CHAN_INDEXER,
@@ -329,25 +369,42 @@ final class Indexer {
 			return null;
 		}
 
+		// Every value below is coerced to the type declared in the index
+		// mapping. WordPress helpers like get_permalink() and
+		// get_the_post_thumbnail_url() can return `false` for drafts/no
+		// thumbnail, which would be rejected by ES as
+		// `mapper_parsing_exception` on `keyword`/`date` fields.
+		$permalink     = get_permalink( $post );
+		$thumbnail_url = get_the_post_thumbnail_url( $post, 'medium' );
+		$date_created  = get_post_time( 'c', true, $post );
+		$date_modified = get_post_modified_time( 'c', true, $post );
+
 		$doc = array(
-			'item_id'        => (int) $post->ID,
-			'post_type'      => (string) $post->post_type,
-			'post_status'    => (string) $post->post_status,
-			'title'          => (string) $post->post_title,
-			'description'    => wp_strip_all_tags( (string) $post->post_excerpt ),
-			'content'        => wp_strip_all_tags( (string) $post->post_content ),
-			'author_id'      => (int) $post->post_author,
-			'author_name'    => (string) get_the_author_meta( 'display_name', (int) $post->post_author ),
-			'permalink'      => get_permalink( $post ),
-			'thumbnail'      => (string) get_the_post_thumbnail_url( $post, 'medium' ),
-			'date_created'   => get_post_time( 'c', true, $post ),
-			'date_modified'  => get_post_modified_time( 'c', true, $post ),
-			'taxonomies'     => array(),
-			'metadata'       => array(),
-			'collection_id'  => 0,
+			'item_id'         => (int) $post->ID,
+			'post_type'       => (string) $post->post_type,
+			'post_status'     => (string) $post->post_status,
+			'title'           => (string) $post->post_title,
+			'description'     => wp_strip_all_tags( (string) $post->post_excerpt ),
+			'content'         => wp_strip_all_tags( (string) $post->post_content ),
+			'author_id'       => (int) $post->post_author,
+			'author_name'     => (string) get_the_author_meta( 'display_name', (int) $post->post_author ),
+			'permalink'       => is_string( $permalink ) ? $permalink : '',
+			'thumbnail'       => is_string( $thumbnail_url ) ? $thumbnail_url : '',
+			'taxonomies'      => array(),
+			'metadata'        => array(),
+			'collection_id'   => 0,
 			'collection_name' => '',
-			'identifier'     => '',
+			'identifier'      => '',
 		);
+
+		// Date fields with `"type": "date"` reject non-strings. Omit entirely
+		// when WP couldn't compute a valid date, rather than emitting null/false.
+		if ( is_string( $date_created ) && '' !== $date_created ) {
+			$doc['date_created'] = $date_created;
+		}
+		if ( is_string( $date_modified ) && '' !== $date_modified ) {
+			$doc['date_modified'] = $date_modified;
+		}
 
 		$taxes = get_object_taxonomies( $post->post_type, 'objects' );
 		foreach ( $taxes as $tax_slug => $tax_obj ) {

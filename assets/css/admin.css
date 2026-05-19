@@ -346,6 +346,19 @@
 	color: #298596;
 }
 
+.tainacan-idxmgr-wrap .tim-error-list {
+	list-style: disc;
+	margin: 0.4rem 0 0 1.2rem;
+	padding: 0;
+}
+.tainacan-idxmgr-wrap .tim-error-list li {
+	margin: 0.3rem 0;
+	font-size: 0.85rem;
+}
+.tainacan-idxmgr-wrap .tim-error-list details {
+	margin-top: 0.3rem;
+}
+
 .tainacan-idxmgr-wrap pre.tim-code {
 	background: #1d1d1d;
 	color: #efefef;
