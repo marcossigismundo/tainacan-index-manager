@@ -50,6 +50,22 @@ Todas as configurações ficam em uma única opção (`tainacan_index_manager_se
 
 Credenciais nunca são expostas pela REST (`__set__` indica "valor armazenado"). Logs aplicam scrub de chaves que contenham `password`, `secret`, `token`, `authorization`, `api_key`.
 
+## Integração com o admin do Tainacan
+
+A partir da versão 1.1.0 o plugin estende `\Tainacan\Pages` (introduzida no Tainacan 1.0.0) seguindo
+o procedimento oficial documentado em
+[creating-tainacan-admin-pages](https://tainacan.github.io/tainacan-wiki/#/dev/creating-tainacan-admin-pages):
+
+- **Saúde da Busca** entra como item do menu raiz do Tainacan (posição 60) via `$this->tainacan_root_menu_slug`.
+- **Configurações de Indexação** entra no submenu "Outros" (`$this->tainacan_other_links_slug`).
+- Ícones SVG nativos do Tainacan via `$this->get_svg_icon('chart' | 'settings')`.
+- Renderização dentro de `<div class="wrap tainacan-page-container-content">` + `<div class="tainacan-fixed-subheader"><h1 class="tainacan-page-title">…`, herdando sidebar, header e tema do Tainacan.
+- `admin_enqueue_css()` / `admin_enqueue_js()` carregam Vue 3 (vendored) + admin.js só dentro das duas páginas.
+
+Quando o Tainacan não está disponível (ou < 1.0.0) o plugin **detecta automaticamente** e cai num
+modo standalone com um top-level menu próprio + admin notice de aviso. A interface continua funcionando
+de forma idêntica; apenas a integração visual com a sidebar do Tainacan fica desabilitada.
+
 ## Arquitetura
 
 ```
@@ -62,6 +78,7 @@ includes/
 ├── class-opensearch-client.php      Subclasse (mesmo wire)
 ├── class-index-manager.php          Schema do índice (PT-BR analyzers, mappings)
 ├── class-indexer.php                Fila + bulk + retry + estados pausar/retomar/cancelar
+├── class-indexer-metrics.php        Throughput / ETA / success rate / histórico de runs
 ├── class-health-service.php         Snapshot (cluster + índice + cobertura) com transient 60s
 ├── class-collections-monitor.php    Cobertura por coleção (transient 300s)
 ├── class-elasticpress-integration.php  Detecção e leitura do estado do EP
@@ -69,7 +86,10 @@ includes/
 ├── class-alerts.php                 Painel (admin_notices) + e-mail throttled
 ├── class-cron.php                   Schedules + 3 ticks (health, index, cleanup)
 ├── class-rest-controller.php        Namespace tainacan-index-manager/v1
-└── class-admin-page.php             Submenus em Tainacan (fallback p/ top-level)
+├── class-admin-page.php             Bootstrap das páginas + fallback standalone
+└── tainacan-pages/
+    ├── class-dashboard-page.php     \Tainacan\TIM_Dashboard_Page extends \Tainacan\Pages
+    └── class-settings-page.php      \Tainacan\TIM_Settings_Page  extends \Tainacan\Pages
 
 assets/
 ├── css/admin.css                    Estilos do painel (paleta Tainacan)
@@ -120,6 +140,8 @@ POST   /index/enqueue-pending
 POST   /index/process-batch
 GET    /index/state
 POST   /index/pause | /index/resume | /index/cancel
+GET    /metrics                         (args.window = N runs para média móvel)
+POST   /metrics/reset
 GET    /logs                            (args: page, per_page, level, channel)
 POST   /logs/clear
 GET    /logs/export
@@ -128,6 +150,25 @@ POST   /alerts/clear
 GET    /elasticpress
 POST   /elasticpress/sync               (WP-CLI required)
 ```
+
+### Indicadores de monitoramento da indexação
+
+A `Indexer_Metrics` registra cada batch e expõe:
+
+| Indicador | Fonte / cálculo |
+|---|---|
+| **Throughput (itens/s)** | `sum(indexed em N runs recentes) / (max_ts - min_ts)` na janela, com fallback para `sum(duration_ms)` |
+| **ETA** | `queue_size / throughput_ips`, formatado em PT-BR (`s` / `min` / `h` / `d`) |
+| **Taxa de sucesso** | `indexed / (indexed + failed)` na janela; colore o card: ≥95% verde, ≥80% amarelo, <80% vermelho |
+| **Lote médio (ms)** | `avg(duration_ms)` na janela |
+| **Tamanho médio do lote** | `avg(built)` na janela |
+| **Total lifetime** | Indexados / Falhas / Skipped / Dropped / Lotes desde a primeira run |
+| **Pico de fila observado** | `max(queue_before)` ao longo do histórico |
+| **Distribuição (stacked bar)** | Indexados / Falhas / Dropped / Skipped em % |
+| **Sparklines (últimas 50 runs)** | Indexados, falhas, duração, tamanho da fila |
+| **Top N falhas (item_id → count)** | Ordenado decrescente, com link `post.php?action=edit` |
+| **Polling em tempo real** | Frontend faz `GET /metrics` a cada 7s |
+
 
 ### Hooks WordPress utilizados
 

@@ -27,6 +27,7 @@ final class REST_Controller {
 	private ElasticPress_Integration $elasticpress;
 	private Logger $logger;
 	private Alerts $alerts;
+	private Indexer_Metrics $metrics;
 
 	public function __construct(
 		Settings $settings,
@@ -36,7 +37,8 @@ final class REST_Controller {
 		Collections_Monitor $collections,
 		ElasticPress_Integration $elasticpress,
 		Logger $logger,
-		Alerts $alerts
+		Alerts $alerts,
+		Indexer_Metrics $metrics
 	) {
 		$this->settings      = $settings;
 		$this->health        = $health;
@@ -46,6 +48,7 @@ final class REST_Controller {
 		$this->elasticpress  = $elasticpress;
 		$this->logger        = $logger;
 		$this->alerts        = $alerts;
+		$this->metrics       = $metrics;
 	}
 
 	public function register(): void {
@@ -204,6 +207,24 @@ final class REST_Controller {
 		register_rest_route( self::NAMESPACE, '/alerts/clear', array(
 			'methods'             => \WP_REST_Server::CREATABLE,
 			'callback'            => array( $this, 'rest_clear_alerts' ),
+			'permission_callback' => $auth,
+		) );
+
+		register_rest_route( self::NAMESPACE, '/metrics', array(
+			'methods'             => \WP_REST_Server::READABLE,
+			'callback'            => array( $this, 'rest_get_metrics' ),
+			'permission_callback' => $auth,
+			'args'                => array(
+				'window' => array(
+					'required'          => false,
+					'sanitize_callback' => 'absint',
+				),
+			),
+		) );
+
+		register_rest_route( self::NAMESPACE, '/metrics/reset', array(
+			'methods'             => \WP_REST_Server::CREATABLE,
+			'callback'            => array( $this, 'rest_reset_metrics' ),
 			'permission_callback' => $auth,
 		) );
 
@@ -378,6 +399,25 @@ final class REST_Controller {
 
 	public function rest_clear_alerts(): \WP_REST_Response {
 		$this->alerts->clear_all();
+		return rest_ensure_response( array( 'ok' => true ) );
+	}
+
+	public function rest_get_metrics( \WP_REST_Request $req ): \WP_REST_Response {
+		$window = (int) $req->get_param( 'window' );
+		if ( $window <= 0 ) {
+			$window = 10;
+		}
+		return rest_ensure_response( array(
+			'state'      => $this->indexer->get_state(),
+			'queue_size' => $this->indexer->queue_size(),
+			'failures'   => $this->indexer->failure_count(),
+			'summary'    => $this->metrics->summary( $this->indexer->queue_size(), $window ),
+		) );
+	}
+
+	public function rest_reset_metrics(): \WP_REST_Response {
+		$this->metrics->reset();
+		$this->logger->info( Logger::CHAN_ADMIN, 'Métricas da indexação zeradas pelo administrador.' );
 		return rest_ensure_response( array( 'ok' => true ) );
 	}
 

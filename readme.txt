@@ -4,7 +4,7 @@ Tags: tainacan, elasticsearch, opensearch, elasticpress, search, indexing
 Requires at least: 6.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.0.0
+Stable tag: 1.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -49,6 +49,15 @@ Não. O plugin pode operar com o indexador próprio. Se o ElasticPress estiver a
 A busca degrada automaticamente para SQL, um alerta é levantado e o evento é registrado nos logs.
 
 == Changelog ==
+
+= 1.1.0 =
+* Integração nativa com o admin do Tainacan via `\Tainacan\Pages` (Tainacan 1.0.0+).
+* "Saúde da Busca" agora aparece como item próprio do menu raiz do Tainacan.
+* "Configurações de Indexação" entra no submenu "Outros" do Tainacan.
+* Modo standalone automático quando o Tainacan não está disponível.
+* Novo módulo `Indexer_Metrics`: throughput (itens/s), ETA, taxa de sucesso, lote médio, sparklines das últimas 50 runs, distribuição lifetime (indexado/falha/dropped/skipped), top N de itens com mais falhas, pico de fila.
+* Novas rotas REST `/metrics` (com janela móvel configurável) e `/metrics/reset`.
+* Polling automático das métricas a cada 7 segundos no painel.
 
 = 1.0.0 =
 * Versão inicial: painel de saúde, indexador próprio, integração com ElasticPress, alertas, logs, fallback SQL.

@@ -23,6 +23,7 @@ final class Plugin {
 	private Health_Service $health;
 	private Index_Manager $index_manager;
 	private Indexer $indexer;
+	private Indexer_Metrics $metrics;
 	private Collections_Monitor $collections;
 	private ElasticPress_Integration $elasticpress;
 	private Search_Integration $search;
@@ -59,11 +60,12 @@ final class Plugin {
 		$this->health        = new Health_Service( $this->settings, $this->logger, $this->alerts );
 		$this->collections   = new Collections_Monitor( $this->settings, $this->logger );
 		$this->index_manager = new Index_Manager( $this->settings, $this->logger );
-		$this->indexer       = new Indexer( $this->settings, $this->logger, $this->index_manager );
+		$this->metrics       = new Indexer_Metrics( $this->settings );
+		$this->indexer       = new Indexer( $this->settings, $this->logger, $this->index_manager, $this->metrics );
 		$this->elasticpress  = new ElasticPress_Integration( $this->settings, $this->logger );
 		$this->search        = new Search_Integration( $this->settings, $this->logger, $this->elasticpress );
 		$this->cron          = new Cron( $this->settings, $this->health, $this->indexer, $this->collections, $this->logger );
-		$this->rest          = new REST_Controller( $this->settings, $this->health, $this->indexer, $this->index_manager, $this->collections, $this->elasticpress, $this->logger, $this->alerts );
+		$this->rest          = new REST_Controller( $this->settings, $this->health, $this->indexer, $this->index_manager, $this->collections, $this->elasticpress, $this->logger, $this->alerts, $this->metrics );
 		$this->admin         = new Admin_Page( $this->settings, $this->health, $this->logger, $this->alerts );
 
 		$this->cron->register();
@@ -89,6 +91,7 @@ final class Plugin {
 	public function alerts(): Alerts               { return $this->alerts; }
 	public function health(): Health_Service       { return $this->health; }
 	public function indexer(): Indexer             { return $this->indexer; }
+	public function metrics(): Indexer_Metrics     { return $this->metrics; }
 	public function index_manager(): Index_Manager { return $this->index_manager; }
 	public function collections(): Collections_Monitor { return $this->collections; }
 	public function elasticpress(): ElasticPress_Integration { return $this->elasticpress; }

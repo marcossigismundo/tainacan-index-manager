@@ -1,6 +1,19 @@
 <?php
 /**
- * Admin pages registered as Tainacan submenus.
+ * Admin pages bootstrap.
+ *
+ * Two integration paths:
+ *
+ * 1) Tainacan 1.0.0+ is present (\Tainacan\Pages exists):
+ *    we load the two \Tainacan\TIM_*_Page classes (Dashboard + Settings).
+ *    Both extend \Tainacan\Pages, get rendered inside Tainacan's native
+ *    page chrome (sidebar + header + theme), and register themselves
+ *    in the Tainacan admin sidebar via add_submenu_page() under
+ *    $tainacan_root_menu_slug / $tainacan_other_links_slug.
+ *
+ * 2) Tainacan is absent or pre-1.0.0:
+ *    we fall back to a standalone top-level menu. The plugin still works,
+ *    but visual integration with Tainacan is limited.
  *
  * @package TainacanIndexManager
  */
@@ -9,18 +22,10 @@ namespace TainacanIndexManager;
 
 defined( 'ABSPATH' ) || exit;
 
-/**
- * Registers the dashboard ("Saúde da Busca") and the settings page
- * as submenus of the Tainacan top-level menu when present, falling back
- * to a top-level menu only if Tainacan isn't active.
- *
- * The UI is a Vue 3 SPA mounted into a single root div; the PHP page
- * is just the mount point.
- */
 final class Admin_Page {
 
-	public const DASHBOARD_SLUG = 'tainacan_index_manager';
-	public const SETTINGS_SLUG  = 'tainacan_index_manager_settings';
+	public const DASHBOARD_SLUG = 'tainacan_idxmgr_dashboard';
+	public const SETTINGS_SLUG  = 'tainacan_idxmgr_settings';
 
 	private Settings $settings;
 	private Health_Service $health;
@@ -35,87 +40,85 @@ final class Admin_Page {
 	}
 
 	public function register(): void {
-		add_action( 'admin_menu', array( $this, 'register_menu' ), 30 );
-		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
+		if ( $this->tainacan_pages_available() ) {
+			// Tainacan 1.0.0+ — load native page classes. They self-register via Singleton_Instance.
+			require_once TAINACAN_INDEX_MANAGER_DIR . 'includes/tainacan-pages/class-dashboard-page.php';
+			require_once TAINACAN_INDEX_MANAGER_DIR . 'includes/tainacan-pages/class-settings-page.php';
+			return;
+		}
+
+		// Fallback path: standalone WP menu + warning notice.
+		add_action( 'admin_menu', array( $this, 'register_fallback_menu' ), 30 );
+		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_fallback_assets' ) );
+		add_action( 'admin_notices', array( $this, 'render_compat_notice' ) );
 	}
 
-	public function register_menu(): void {
-		$parent = $this->detect_tainacan_parent();
-		$icon   = 'dashicons-chart-line';
-
-		if ( $parent ) {
-			add_submenu_page(
-				$parent,
-				__( 'Saúde da Busca', 'tainacan-index-manager' ),
-				__( 'Saúde da Busca', 'tainacan-index-manager' ),
-				'manage_options',
-				self::DASHBOARD_SLUG,
-				array( $this, 'render_dashboard' )
-			);
-			add_submenu_page(
-				$parent,
-				__( 'Configurações de Indexação', 'tainacan-index-manager' ),
-				__( 'Configurações de Indexação', 'tainacan-index-manager' ),
-				'manage_options',
-				self::SETTINGS_SLUG,
-				array( $this, 'render_settings' )
-			);
-		} else {
-			add_menu_page(
-				__( 'Saúde da Busca (Tainacan)', 'tainacan-index-manager' ),
-				__( 'Saúde da Busca', 'tainacan-index-manager' ),
-				'manage_options',
-				self::DASHBOARD_SLUG,
-				array( $this, 'render_dashboard' ),
-				$icon,
-				58
-			);
-			add_submenu_page(
-				self::DASHBOARD_SLUG,
-				__( 'Configurações de Indexação', 'tainacan-index-manager' ),
-				__( 'Configurações', 'tainacan-index-manager' ),
-				'manage_options',
-				self::SETTINGS_SLUG,
-				array( $this, 'render_settings' )
-			);
-		}
+	private function tainacan_pages_available(): bool {
+		return class_exists( '\\Tainacan\\Pages' )
+			&& trait_exists( '\\Tainacan\\Traits\\Singleton_Instance' );
 	}
 
 	/**
-	 * Look for the Tainacan top-level menu slug.
-	 * Tainacan registers its menu under `tainacan_admin` (current versions);
-	 * older versions used `tainacan`. We probe both.
+	 * JS config passed to the Vue SPA. Shared between Tainacan and fallback paths.
+	 *
+	 * @param string $view 'dashboard' or 'settings'.
 	 */
-	private function detect_tainacan_parent(): ?string {
-		global $menu;
-		if ( ! is_array( $menu ) ) {
-			return null;
-		}
-		$candidates = array( 'tainacan_admin', 'tainacan', 'tainacan-admin' );
-		foreach ( $menu as $entry ) {
-			if ( is_array( $entry ) && isset( $entry[2] ) && in_array( (string) $entry[2], $candidates, true ) ) {
-				return (string) $entry[2];
-			}
-		}
-		// Tainacan might register later; if its main class exists, assume slug.
-		if ( class_exists( '\\Tainacan\\Admin' ) ) {
-			return 'tainacan_admin';
-		}
-		return null;
+	public static function js_config( string $view ): array {
+		return array(
+			'restRoot'   => esc_url_raw( rest_url( REST_Controller::NAMESPACE ) ),
+			'restNonce'  => wp_create_nonce( 'wp_rest' ),
+			'pluginUrl'  => esc_url_raw( TAINACAN_INDEX_MANAGER_URL ),
+			'view'       => $view,
+			'dashUrl'    => esc_url_raw( admin_url( 'admin.php?page=' . self::DASHBOARD_SLUG ) ),
+			'settingsUrl' => esc_url_raw( admin_url( 'admin.php?page=' . self::SETTINGS_SLUG ) ),
+			'tainacanIntegrated' => class_exists( '\\Tainacan\\Pages' ),
+			'i18n'       => self::i18n_strings(),
+		);
 	}
 
-	public function render_dashboard(): void {
-		echo '<div class="wrap tainacan-idxmgr-wrap"><div id="tainacan-idxmgr-app" data-view="dashboard"></div></div>';
+	/* --------- Fallback path (Tainacan absent) --------- */
+
+	public function register_fallback_menu(): void {
+		add_menu_page(
+			__( 'Saúde da Busca', 'tainacan-index-manager' ),
+			__( 'Saúde da Busca', 'tainacan-index-manager' ),
+			'manage_options',
+			self::DASHBOARD_SLUG,
+			array( $this, 'render_fallback_dashboard' ),
+			'dashicons-chart-line',
+			58
+		);
+		add_submenu_page(
+			self::DASHBOARD_SLUG,
+			__( 'Configurações de Indexação', 'tainacan-index-manager' ),
+			__( 'Configurações', 'tainacan-index-manager' ),
+			'manage_options',
+			self::SETTINGS_SLUG,
+			array( $this, 'render_fallback_settings' )
+		);
 	}
 
-	public function render_settings(): void {
-		echo '<div class="wrap tainacan-idxmgr-wrap"><div id="tainacan-idxmgr-app" data-view="settings"></div></div>';
+	public function render_fallback_dashboard(): void {
+		echo '<div class="wrap tainacan-idxmgr-wrap is-standalone">';
+		echo '<h1 class="tim-title">' . esc_html__( 'Saúde da Busca', 'tainacan-index-manager' ) . '</h1>';
+		echo '<div id="tainacan-idxmgr-app" data-view="dashboard"></div>';
+		echo '</div>';
 	}
 
-	public function enqueue_assets( string $hook ): void {
-		if ( ! $this->is_plugin_page( $hook ) ) {
+	public function render_fallback_settings(): void {
+		echo '<div class="wrap tainacan-idxmgr-wrap is-standalone">';
+		echo '<h1 class="tim-title">' . esc_html__( 'Configurações de Indexação', 'tainacan-index-manager' ) . '</h1>';
+		echo '<div id="tainacan-idxmgr-app" data-view="settings"></div>';
+		echo '</div>';
+	}
+
+	public function enqueue_fallback_assets( string $hook ): void {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only admin page-slug check; no state mutation.
+		$page = isset( $_GET['page'] ) ? sanitize_text_field( wp_unslash( $_GET['page'] ) ) : '';
+		if ( ! in_array( $page, array( self::DASHBOARD_SLUG, self::SETTINGS_SLUG ), true ) ) {
 			return;
 		}
+		$view = self::SETTINGS_SLUG === $page ? 'settings' : 'dashboard';
 
 		wp_enqueue_style(
 			'tainacan-idxmgr-admin',
@@ -123,8 +126,6 @@ final class Admin_Page {
 			array(),
 			TAINACAN_INDEX_MANAGER_VERSION
 		);
-
-		// Vue 3 from local vendor folder (no CDN per CLAUDE.md).
 		wp_register_script(
 			'tainacan-idxmgr-vue',
 			TAINACAN_INDEX_MANAGER_URL . 'assets/vendor/vue/vue.global.prod.js',
@@ -132,7 +133,6 @@ final class Admin_Page {
 			'3.4.27',
 			true
 		);
-
 		wp_register_script(
 			'tainacan-idxmgr-admin',
 			TAINACAN_INDEX_MANAGER_URL . 'assets/js/admin.js',
@@ -140,48 +140,37 @@ final class Admin_Page {
 			TAINACAN_INDEX_MANAGER_VERSION,
 			true
 		);
-
-		wp_localize_script( 'tainacan-idxmgr-admin', 'TIMConfig', array(
-			'restRoot'   => esc_url_raw( rest_url( REST_Controller::NAMESPACE ) ),
-			'restNonce'  => wp_create_nonce( 'wp_rest' ),
-			'pluginUrl'  => esc_url_raw( TAINACAN_INDEX_MANAGER_URL ),
-			'dashUrl'    => esc_url_raw( admin_url( 'admin.php?page=' . self::DASHBOARD_SLUG ) ),
-			'settingsUrl' => esc_url_raw( admin_url( 'admin.php?page=' . self::SETTINGS_SLUG ) ),
-			'i18n'       => $this->i18n_strings(),
-		) );
-
+		wp_localize_script( 'tainacan-idxmgr-admin', 'TIMConfig', self::js_config( $view ) );
 		wp_enqueue_script( 'tainacan-idxmgr-vue' );
 		wp_enqueue_script( 'tainacan-idxmgr-admin' );
 		wp_set_script_translations( 'tainacan-idxmgr-admin', 'tainacan-index-manager' );
 	}
 
-	private function is_plugin_page( string $hook ): bool {
-		// Hook suffix is parent-page_page_subslug; we don't pin it because the parent
-		// can be either Tainacan's slug or the plugin's standalone slug.
-		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
-		if ( $screen && isset( $screen->id ) ) {
-			if ( false !== strpos( $screen->id, self::DASHBOARD_SLUG ) ) {
-				return true;
-			}
-			if ( false !== strpos( $screen->id, self::SETTINGS_SLUG ) ) {
-				return true;
-			}
+	public function render_compat_notice(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
 		}
-		// Last-resort fallback: GET page= matches.
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only admin page-slug check; no state mutation.
-		$page = isset( $_GET['page'] ) ? sanitize_text_field( wp_unslash( $_GET['page'] ) ) : '';
-		return in_array( $page, array( self::DASHBOARD_SLUG, self::SETTINGS_SLUG ), true );
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen || false === strpos( (string) $screen->id, self::DASHBOARD_SLUG ) ) {
+			return;
+		}
+		echo '<div class="notice notice-warning"><p><strong>'
+			. esc_html__( 'Tainacan Index Manager', 'tainacan-index-manager' )
+			. ':</strong> '
+			. esc_html__( 'O plugin Tainacan 1.0.0+ não foi detectado. Estamos exibindo a interface em modo standalone; para integração total com o admin do Tainacan, atualize/ative o Tainacan.', 'tainacan-index-manager' )
+			. '</p></div>';
 	}
 
 	/**
-	 * Strings exposed to the Vue app (so they can be translated and reused).
+	 * Translation strings exposed to the Vue SPA.
 	 */
-	private function i18n_strings(): array {
+	private static function i18n_strings(): array {
 		return array(
 			'dashboard'          => __( 'Saúde da Busca', 'tainacan-index-manager' ),
 			'settings'           => __( 'Configurações de Indexação', 'tainacan-index-manager' ),
 			'logs'               => __( 'Logs', 'tainacan-index-manager' ),
 			'alerts'             => __( 'Alertas', 'tainacan-index-manager' ),
+			'metrics'            => __( 'Métricas da Indexação', 'tainacan-index-manager' ),
 			'overview'           => __( 'Visão geral', 'tainacan-index-manager' ),
 			'cluster'            => __( 'Cluster', 'tainacan-index-manager' ),
 			'index'              => __( 'Índice', 'tainacan-index-manager' ),
@@ -218,6 +207,19 @@ final class Admin_Page {
 			'connection_failed'  => __( 'Falha na conexão', 'tainacan-index-manager' ),
 			'never'              => __( 'Nunca', 'tainacan-index-manager' ),
 			'sync_now'           => __( 'Sincronizar agora', 'tainacan-index-manager' ),
+			'throughput'         => __( 'Itens/segundo', 'tainacan-index-manager' ),
+			'eta'                => __( 'Tempo restante estimado', 'tainacan-index-manager' ),
+			'success_rate'       => __( 'Taxa de sucesso', 'tainacan-index-manager' ),
+			'avg_batch_ms'       => __( 'Lote médio (ms)', 'tainacan-index-manager' ),
+			'avg_batch_size'     => __( 'Tamanho médio do lote', 'tainacan-index-manager' ),
+			'queue_size'         => __( 'Tamanho da fila', 'tainacan-index-manager' ),
+			'queue_peak'         => __( 'Pico da fila', 'tainacan-index-manager' ),
+			'lifetime_indexed'   => __( 'Total indexado', 'tainacan-index-manager' ),
+			'lifetime_failed'    => __( 'Total falhas', 'tainacan-index-manager' ),
+			'lifetime_batches'   => __( 'Total de lotes', 'tainacan-index-manager' ),
+			'history'            => __( 'Histórico de execuções', 'tainacan-index-manager' ),
+			'failure_top'        => __( 'Itens com mais falhas', 'tainacan-index-manager' ),
+			'reset_metrics'      => __( 'Zerar métricas', 'tainacan-index-manager' ),
 		);
 	}
 }

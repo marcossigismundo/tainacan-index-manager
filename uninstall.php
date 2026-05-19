@@ -17,6 +17,7 @@ delete_option( 'tainacan_idxmgr_alerts' );
 delete_option( 'tainacan_idxmgr_queue' );
 delete_option( 'tainacan_idxmgr_failures' );
 delete_option( 'tainacan_idxmgr_indexer_state' );
+delete_option( 'tainacan_idxmgr_metrics' );
 
 delete_transient( 'tainacan_idxmgr_health_snapshot' );
 delete_transient( 'tainacan_idxmgr_collections_report' );

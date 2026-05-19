@@ -36,12 +36,14 @@ final class Indexer {
 	private Logger $logger;
 	private Index_Manager $index_manager;
 	private Elasticsearch_Client $client;
+	private Indexer_Metrics $metrics;
 
-	public function __construct( Settings $settings, Logger $logger, Index_Manager $index_manager ) {
+	public function __construct( Settings $settings, Logger $logger, Index_Manager $index_manager, Indexer_Metrics $metrics ) {
 		$this->settings      = $settings;
 		$this->logger        = $logger;
 		$this->index_manager = $index_manager;
 		$this->client        = $index_manager->client();
+		$this->metrics       = $metrics;
 
 		add_action( 'save_post', array( $this, 'on_save_post' ), 20, 3 );
 		add_action( 'before_delete_post', array( $this, 'on_before_delete_post' ) );
@@ -176,8 +178,10 @@ final class Indexer {
 		}
 
 		$this->set_state( self::STATE_RUNNING );
-		$batch_size = (int) $this->settings->get( 'batch_size', 50 );
-		$batch      = array_slice( $queue, 0, $batch_size );
+		$batch_size   = (int) $this->settings->get( 'batch_size', 50 );
+		$batch        = array_slice( $queue, 0, $batch_size );
+		$queue_before = count( $queue );
+		$start_ts     = microtime( true );
 
 		$index    = (string) $this->settings->get( 'index_name' );
 		$lines    = array();
@@ -257,17 +261,31 @@ final class Indexer {
 			$this->set_state( self::STATE_FINISHED );
 		}
 
+		$duration_ms = (int) round( ( microtime( true ) - $start_ts ) * 1000 );
 		$this->settings->mark_timestamp( 'last_index_run_ts' );
+		$this->metrics->record_run( array(
+			'ts'           => time(),
+			'duration_ms'  => $duration_ms,
+			'built'        => $built,
+			'indexed'      => $indexed,
+			'failed'       => count( $failed ),
+			'skipped'      => count( $skipped ),
+			'dropped'      => $dropped,
+			'queue_before' => $queue_before,
+			'queue_after'  => $remaining,
+			'failed_ids'   => $failed,
+		) );
 		$this->logger->info(
 			Logger::CHAN_INDEXER,
 			'Lote de indexação processado.',
 			array(
-				'built'     => $built,
-				'indexed'   => $indexed,
-				'failed'    => count( $failed ),
-				'skipped'   => count( $skipped ),
-				'dropped'   => $dropped,
-				'remaining' => $remaining,
+				'built'       => $built,
+				'indexed'     => $indexed,
+				'failed'      => count( $failed ),
+				'skipped'     => count( $skipped ),
+				'dropped'     => $dropped,
+				'remaining'   => $remaining,
+				'duration_ms' => $duration_ms,
 			)
 		);
 
@@ -573,6 +591,10 @@ final class Indexer {
 
 	public function clear_failures(): void {
 		update_option( self::FAILURES_OPTION, array(), false );
+	}
+
+	public function metrics(): Indexer_Metrics {
+		return $this->metrics;
 	}
 
 	public function get_state(): string {

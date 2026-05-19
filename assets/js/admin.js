@@ -1,9 +1,10 @@
 /*
  * Tainacan Index Manager — Admin SPA (Vue 3).
  *
- * Single Vue app mounted on #tainacan-idxmgr-app. The `data-view`
- * attribute on the root element selects between "dashboard" and
- * "settings" views. All server interaction goes through the plugin's
+ * Single Vue app mounted on #tainacan-idxmgr-app inside Tainacan's
+ * native page chrome (tainacan-page-container-content + tainacan-fixed-subheader).
+ * The `data-view` attribute on the root element selects between "dashboard"
+ * and "settings" views. All server interaction goes through the plugin's
  * REST namespace, authenticated via cookie + X-WP-Nonce.
  */
 (function () {
@@ -22,7 +23,7 @@
 	if (!root) return;
 
 	var i18n = window.TIMConfig.i18n || {};
-	var initialView = root.getAttribute('data-view') || 'dashboard';
+	var initialView = root.getAttribute('data-view') || window.TIMConfig.view || 'dashboard';
 
 	function api(method, path, body) {
 		var url = window.TIMConfig.restRoot.replace(/\/$/, '') + path;
@@ -65,6 +66,18 @@
 		try { return new Date(ts * 1000).toLocaleString('pt-BR'); } catch (e) { return String(ts); }
 	}
 
+	function fmtMs(n) {
+		if (n === null || typeof n === 'undefined') return '—';
+		if (n < 1000) return n + ' ms';
+		return (n / 1000).toFixed(2) + ' s';
+	}
+
+	function fmtFloat(n, d) {
+		if (n === null || typeof n === 'undefined') return '—';
+		try { return Number(n).toLocaleString('pt-BR', { minimumFractionDigits: d || 0, maximumFractionDigits: d || 2 }); }
+		catch (e) { return String(n); }
+	}
+
 	function statusToClass(s) {
 		if (s === 'green' || s === 'ok')   return 'tim-green';
 		if (s === 'yellow' || s === 'warning') return 'tim-yellow';
@@ -89,10 +102,58 @@
 		return e || '—';
 	}
 
+	/**
+	 * Tiny inline sparkline component. Pure canvas (no chart library);
+	 * keeps bundle small and respects the "no CDN" rule from CLAUDE.md.
+	 */
+	var Sparkline = {
+		props: ['values', 'color', 'height'],
+		template: '<canvas ref="cv" class="tim-sparkline" :style="{ height: (height || 36) + \'px\' }"></canvas>',
+		mounted: function () { this.draw(); },
+		watch: { values: function () { this.draw(); } },
+		methods: {
+			draw: function () {
+				var cv = this.$refs.cv;
+				if (!cv) return;
+				var dpr = window.devicePixelRatio || 1;
+				var w = cv.clientWidth;
+				var h = this.height || 36;
+				cv.width = w * dpr; cv.height = h * dpr;
+				var ctx = cv.getContext('2d');
+				ctx.scale(dpr, dpr);
+				ctx.clearRect(0, 0, w, h);
+				var v = this.values || [];
+				if (v.length === 0) return;
+				var max = Math.max.apply(null, v); if (max === 0) max = 1;
+				var min = Math.min.apply(null, v);
+				var range = (max - min) || 1;
+				var stepX = w / Math.max(1, v.length - 1);
+				ctx.strokeStyle = this.color || '#298596';
+				ctx.lineWidth = 2;
+				ctx.lineJoin = 'round';
+				ctx.lineCap = 'round';
+				ctx.beginPath();
+				v.forEach(function (val, i) {
+					var x = i * stepX;
+					var y = h - ((val - min) / range) * (h - 4) - 2;
+					if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+				});
+				ctx.stroke();
+				// Soft fill under the line.
+				var fill = ctx.createLinearGradient(0, 0, 0, h);
+				fill.addColorStop(0, (this.color || '#298596') + '44');
+				fill.addColorStop(1, (this.color || '#298596') + '00');
+				ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
+				ctx.fillStyle = fill;
+				ctx.fill();
+			}
+		}
+	};
+
 	var DashboardView = {
+		components: { Sparkline: Sparkline },
 		template: '\
 		<div>\
-			<h1 class="tim-title">{{ i18n.dashboard }}</h1>\
 			<div v-if="initialLoading" class="tim-notice is-info"><span class="tim-loading"></span> {{ i18n.refresh }}…</div>\
 			<div v-else-if="errorMsg" class="tim-notice is-error">{{ errorMsg }}</div>\
 			<template v-else>\
@@ -104,12 +165,12 @@
 						</span>\
 						<span class="tim-card-sub">{{ snapshot.overall_message }}</span>\
 					</div>\
-					<div :class="[\'tim-card\', cardClass(snapshot.cluster_status === \'red\' ? \'critical\' : (snapshot.cluster_status === \'yellow\' ? \'warning\' : (snapshot.cluster_status === \'green\' ? \'ok\' : \'unknown\')))]">\
+					<div :class="[\'tim-card\', clusterClass(snapshot.cluster_status)]">\
 						<span class="tim-card-label">{{ i18n.cluster }}</span>\
 						<span class="tim-card-value">\
 							<span :class="[\'tim-status-pill\', statusClass(snapshot.cluster_status)]">{{ (snapshot.cluster_status || \'—\').toUpperCase() }}</span>\
 						</span>\
-						<span class="tim-card-sub" v-if="snapshot.cluster">{{ snapshot.cluster.number_of_nodes }} nós · {{ snapshot.cluster.active_shards }} shards ativos · {{ snapshot.cluster.unassigned_shards }} unassigned</span>\
+						<span class="tim-card-sub" v-if="snapshot.cluster">{{ snapshot.cluster.number_of_nodes }} nós · {{ snapshot.cluster.active_shards }} shards · {{ snapshot.cluster.unassigned_shards }} unassigned</span>\
 					</div>\
 					<div class="tim-card">\
 						<span class="tim-card-label">{{ i18n.response_time }}</span>\
@@ -130,7 +191,7 @@
 						<span class="tim-card-value">{{ fmtNumber(snapshot.index_doc_count) }}</span>\
 						<span class="tim-card-sub" v-if="snapshot.index_size_bytes !== null">{{ fmtBytes(snapshot.index_size_bytes) }}</span>\
 					</div>\
-					<div :class="[\'tim-card\', snapshot.divergence_pct !== null && snapshot.divergence_pct > snapshot.divergence_threshold_pct ? \'is-warning\' : \'is-ok\']">\
+					<div :class="[\'tim-card\', coverageCardClass()]">\
 						<span class="tim-card-label">{{ i18n.coverage }}</span>\
 						<span class="tim-card-value">{{ snapshot.coverage_pct !== null ? snapshot.coverage_pct + \'%\' : \'—\' }}</span>\
 						<div class="tim-bar" v-if="snapshot.coverage_pct !== null"><div class="tim-bar-fill" :style="{ width: Math.min(100, Math.max(0, snapshot.coverage_pct)) + \'%\' }"></div></div>\
@@ -138,16 +199,102 @@
 					</div>\
 					<div class="tim-card">\
 						<span class="tim-card-label">{{ i18n.last_check }}</span>\
-						<span class="tim-card-value" style="font-size:1rem">{{ fmtDate(snapshot.last_health_check_ts) }}</span>\
+						<span class="tim-card-value tim-card-value-small">{{ fmtDate(snapshot.last_health_check_ts) }}</span>\
 						<span class="tim-card-sub">{{ i18n.last_index }}: {{ fmtDate(snapshot.last_index_run_ts) }}</span>\
 					</div>\
 				</div>\
 \
-				<div class="tim-actions">\
-					<button class="tim-btn" @click="refresh(true)" :disabled="loading"><span class="tim-loading" v-if="loading"></span>{{ i18n.refresh }}</button>\
-					<button class="tim-btn is-secondary" @click="testConnection" :disabled="loading">{{ i18n.test_connection }}</button>\
-					<button class="tim-btn is-secondary" @click="processBatch" :disabled="loading || !snapshot.es_reachable">{{ i18n.process_batch }}</button>\
-					<a class="tim-btn is-secondary" :href="settingsUrl">{{ i18n.settings }}</a>\
+				<div class="tim-section">\
+					<div class="tim-section-header">\
+						<h2>{{ i18n.metrics }}</h2>\
+						<div class="tim-section-actions">\
+							<button class="tim-btn is-secondary" @click="refresh(true)" :disabled="loading"><span class="tim-loading" v-if="loading"></span>{{ i18n.refresh }}</button>\
+							<button class="tim-btn is-secondary" @click="processBatch" :disabled="loading || !snapshot.es_reachable">{{ i18n.process_batch }}</button>\
+							<button class="tim-btn is-secondary" @click="resetMetrics">{{ i18n.reset_metrics }}</button>\
+						</div>\
+					</div>\
+					<div class="tim-cards tim-cards-compact">\
+						<div class="tim-card">\
+							<span class="tim-card-label">{{ i18n.throughput }}</span>\
+							<span class="tim-card-value">{{ fmtFloat(metrics.window && metrics.window.throughput_ips, 2) }}</span>\
+							<span class="tim-card-sub">{{ metrics.window && metrics.window.runs }} execuções (janela {{ windowLabel }})</span>\
+						</div>\
+						<div class="tim-card">\
+							<span class="tim-card-label">{{ i18n.eta }}</span>\
+							<span class="tim-card-value">{{ etaLabel }}</span>\
+							<span class="tim-card-sub">{{ i18n.queue_size }}: {{ fmtNumber(metrics.queue && metrics.queue.size) }} · {{ i18n.queue_peak }}: {{ fmtNumber(metrics.queue && metrics.queue.peak_observed) }}</span>\
+						</div>\
+						<div :class="[\'tim-card\', successCardClass()]">\
+							<span class="tim-card-label">{{ i18n.success_rate }}</span>\
+							<span class="tim-card-value">{{ successRateLabel }}</span>\
+							<span class="tim-card-sub">{{ fmtNumber(metrics.window && metrics.window.indexed) }} sucessos · {{ fmtNumber(metrics.window && metrics.window.failed) }} falhas</span>\
+						</div>\
+						<div class="tim-card">\
+							<span class="tim-card-label">{{ i18n.avg_batch_ms }}</span>\
+							<span class="tim-card-value">{{ fmtMs(metrics.window && metrics.window.avg_batch_ms) }}</span>\
+							<span class="tim-card-sub">{{ i18n.avg_batch_size }}: {{ fmtFloat(metrics.window && metrics.window.avg_batch_size, 1) }}</span>\
+						</div>\
+						<div class="tim-card">\
+							<span class="tim-card-label">{{ i18n.lifetime_indexed }}</span>\
+							<span class="tim-card-value">{{ fmtNumber(metrics.summary_lifetime_indexed) }}</span>\
+							<span class="tim-card-sub">{{ i18n.lifetime_batches }}: {{ fmtNumber(metrics.summary_lifetime_batches) }}</span>\
+						</div>\
+						<div class="tim-card">\
+							<span class="tim-card-label">{{ i18n.lifetime_failed }}</span>\
+							<span class="tim-card-value">{{ fmtNumber(metrics.summary_lifetime_failed) }}</span>\
+							<span class="tim-card-sub">Dropped (max retries): {{ fmtNumber(metrics.summary_lifetime_dropped) }}</span>\
+						</div>\
+					</div>\
+\
+					<div class="tim-charts">\
+						<div class="tim-chart-block">\
+							<h3>Itens indexados (últimas 50 runs)</h3>\
+							<sparkline :values="sparkIndexed" color="#298596" :height="56"></sparkline>\
+						</div>\
+						<div class="tim-chart-block">\
+							<h3>Falhas por lote</h3>\
+							<sparkline :values="sparkFailed" color="#e01b24" :height="56"></sparkline>\
+						</div>\
+						<div class="tim-chart-block">\
+							<h3>Duração do lote (ms)</h3>\
+							<sparkline :values="sparkDuration" color="#f5c211" :height="56"></sparkline>\
+						</div>\
+						<div class="tim-chart-block">\
+							<h3>Tamanho da fila</h3>\
+							<sparkline :values="sparkQueue" color="#6e6e74" :height="56"></sparkline>\
+						</div>\
+					</div>\
+\
+					<div class="tim-row tim-row-2">\
+						<div class="tim-stack-bar" v-if="metrics.distribution_total > 0">\
+							<h3>Distribuição (lifetime)</h3>\
+							<div class="tim-stackbar">\
+								<div class="tim-stackbar-seg tim-seg-ok"     :style="{ width: pctOf(\'indexed\') + \'%\' }"     :title="\'Indexados: \' + fmtNumber(metrics.summary_lifetime_indexed)"></div>\
+								<div class="tim-stackbar-seg tim-seg-fail"   :style="{ width: pctOf(\'failed\') + \'%\' }"      :title="\'Falhas: \' + fmtNumber(metrics.summary_lifetime_failed)"></div>\
+								<div class="tim-stackbar-seg tim-seg-drop"   :style="{ width: pctOf(\'dropped\') + \'%\' }"     :title="\'Dropped: \' + fmtNumber(metrics.summary_lifetime_dropped)"></div>\
+								<div class="tim-stackbar-seg tim-seg-skip"   :style="{ width: pctOf(\'skipped\') + \'%\' }"     :title="\'Skipped: \' + fmtNumber(metrics.summary_lifetime_skipped)"></div>\
+							</div>\
+							<ul class="tim-legend">\
+								<li><span class="dot tim-seg-ok"></span> Indexados: {{ fmtNumber(metrics.summary_lifetime_indexed) }} ({{ pctOf(\'indexed\') }}%)</li>\
+								<li><span class="dot tim-seg-fail"></span> Falhas: {{ fmtNumber(metrics.summary_lifetime_failed) }} ({{ pctOf(\'failed\') }}%)</li>\
+								<li><span class="dot tim-seg-drop"></span> Dropped: {{ fmtNumber(metrics.summary_lifetime_dropped) }} ({{ pctOf(\'dropped\') }}%)</li>\
+								<li><span class="dot tim-seg-skip"></span> Skipped: {{ fmtNumber(metrics.summary_lifetime_skipped) }} ({{ pctOf(\'skipped\') }}%)</li>\
+							</ul>\
+						</div>\
+\
+						<div v-if="failureTop.length">\
+							<h3>{{ i18n.failure_top }}</h3>\
+							<table class="tim-table">\
+								<thead><tr><th>Item ID</th><th>Falhas</th></tr></thead>\
+								<tbody>\
+									<tr v-for="f in failureTop" :key="f.id">\
+										<td><a :href="\'post.php?post=\' + f.id + \'&action=edit\'" target="_blank">#{{ f.id }}</a></td>\
+										<td>{{ f.count }}</td>\
+									</tr>\
+								</tbody>\
+							</table>\
+						</div>\
+					</div>\
 				</div>\
 \
 				<div class="tim-notice is-success" v-if="lastActionMsg">{{ lastActionMsg }}</div>\
@@ -157,8 +304,7 @@
 					<table class="tim-table" v-if="collections.rows && collections.rows.length">\
 						<thead>\
 							<tr>\
-								<th>ID</th><th>Coleção</th><th>Tainacan</th><th>Indexado</th><th>{{ i18n.coverage }}</th><th>{{ i18n.divergence }}</th>\
-								<th></th>\
+								<th>ID</th><th>Coleção</th><th>Tainacan</th><th>Indexado</th><th>{{ i18n.coverage }}</th><th>{{ i18n.divergence }}</th><th></th>\
 							</tr>\
 						</thead>\
 						<tbody>\
@@ -178,7 +324,7 @@
 \
 				<div class="tim-section">\
 					<h2>{{ i18n.alerts }} <span class="tim-muted">({{ alerts.length }})</span></h2>\
-					<ul v-if="alerts.length">\
+					<ul class="tim-alerts" v-if="alerts.length">\
 						<li v-for="a in alerts" :key="a.code">\
 							<span :class="[\'tim-status-pill\', statusClass(a.severity === \'critical\' ? \'red\' : (a.severity === \'warning\' ? \'yellow\' : \'unknown\'))]">{{ a.severity }}</span>\
 							<strong style="margin-left:.4rem">{{ a.code }}</strong> — {{ a.message }}\
@@ -211,7 +357,7 @@
 						<tbody>\
 							<tr v-for="l in logs" :key="l.id">\
 								<td>{{ l.created_at }} UTC</td>\
-								<td><span :class="[\'tim-status-pill\', statusClass(l.level === \'critical\' ? \'red\' : (l.level === \'warning\' ? \'yellow\' : (l.level === \'error\' ? \'red\' : \'green\')))]">{{ l.level }}</span></td>\
+								<td><span :class="[\'tim-status-pill\', logLevelClass(l.level)]">{{ l.level }}</span></td>\
 								<td>{{ l.channel }}</td>\
 								<td>{{ l.message }}</td>\
 							</tr>\
@@ -232,15 +378,41 @@
 				logs: [],
 				alerts: [],
 				elasticpress: { active: false },
-				settingsUrl: window.TIMConfig.settingsUrl,
+				metrics: { window: {}, queue: {}, sparkline: { indexed: [], failed: [], duration: [], queue: [] }, summary_lifetime_indexed: 0, summary_lifetime_failed: 0, summary_lifetime_skipped: 0, summary_lifetime_dropped: 0, summary_lifetime_batches: 0, distribution_total: 0 },
+				failureTop: [],
+				poller: null,
+				windowLabel: '10 runs',
 				i18n: i18n
 			};
 		},
-		mounted: function () { this.refresh(false); },
+		computed: {
+			sparkIndexed:  function () { return (this.metrics && this.metrics.sparkline && this.metrics.sparkline.indexed)  || []; },
+			sparkFailed:   function () { return (this.metrics && this.metrics.sparkline && this.metrics.sparkline.failed)   || []; },
+			sparkDuration: function () { return (this.metrics && this.metrics.sparkline && this.metrics.sparkline.duration) || []; },
+			sparkQueue:    function () { return (this.metrics && this.metrics.sparkline && this.metrics.sparkline.queue)    || []; },
+			etaLabel: function () {
+				var q = this.metrics && this.metrics.queue;
+				if (!q) return '—';
+				if (q.size === 0) return '—';
+				if (q.eta_human) return q.eta_human;
+				return 'sem amostra';
+			},
+			successRateLabel: function () {
+				var s = this.metrics && this.metrics.window && this.metrics.window.success_rate_pct;
+				return (s === null || typeof s === 'undefined') ? '—' : (s + '%');
+			}
+		},
+		mounted: function () {
+			var self = this;
+			this.refresh(false).then(function () { self.startPolling(); });
+		},
+		beforeUnmount: function () { this.stopPolling(); },
 		methods: {
 			fmtNumber: fmtNumber,
 			fmtBytes: fmtBytes,
 			fmtDate: fmtDate,
+			fmtMs: fmtMs,
+			fmtFloat: fmtFloat,
 			statusClass: statusToClass,
 			cardClass: cardClass,
 			engineLabel: engineLabel,
@@ -249,6 +421,38 @@
 				if (s === 'warning') return 'ATENÇÃO';
 				if (s === 'critical') return 'CRÍTICO';
 				return '—';
+			},
+			clusterClass: function (s) {
+				if (s === 'red')    return 'is-critical';
+				if (s === 'yellow') return 'is-warning';
+				if (s === 'green')  return 'is-ok';
+				return 'is-unknown';
+			},
+			coverageCardClass: function () {
+				if (this.snapshot.divergence_pct === null) return '';
+				return this.snapshot.divergence_pct > this.snapshot.divergence_threshold_pct ? 'is-warning' : 'is-ok';
+			},
+			successCardClass: function () {
+				var s = this.metrics && this.metrics.window && this.metrics.window.success_rate_pct;
+				if (s === null || typeof s === 'undefined') return '';
+				if (s >= 95) return 'is-ok';
+				if (s >= 80) return 'is-warning';
+				return 'is-critical';
+			},
+			logLevelClass: function (l) {
+				if (l === 'critical' || l === 'error') return 'tim-red';
+				if (l === 'warning') return 'tim-yellow';
+				return 'tim-green';
+			},
+			pctOf: function (key) {
+				var total = this.metrics.distribution_total || 0;
+				if (total <= 0) return 0;
+				var v = 0;
+				if (key === 'indexed') v = this.metrics.summary_lifetime_indexed;
+				if (key === 'failed')  v = this.metrics.summary_lifetime_failed;
+				if (key === 'dropped') v = this.metrics.summary_lifetime_dropped;
+				if (key === 'skipped') v = this.metrics.summary_lifetime_skipped;
+				return Math.round((v / total) * 1000) / 10;
 			},
 			refresh: function (force) {
 				var self = this;
@@ -260,13 +464,15 @@
 					api('GET', '/collections' + qs),
 					api('GET', '/alerts'),
 					api('GET', '/elasticpress'),
-					api('GET', '/logs?per_page=15')
+					api('GET', '/logs?per_page=15'),
+					api('GET', '/metrics?window=10')
 				]).then(function (results) {
 					self.snapshot     = results[0] || {};
 					self.collections  = results[1] || { rows: [] };
 					self.alerts       = (results[2] && results[2].alerts) || [];
 					self.elasticpress = results[3] || { active: false };
 					self.logs         = (results[4] && results[4].rows) || [];
+					self.applyMetrics(results[5] || {});
 				}).catch(function (err) {
 					self.errorMsg = err.message || 'Erro ao carregar dados.';
 				}).finally(function () {
@@ -274,6 +480,32 @@
 					self.initialLoading = false;
 				});
 			},
+			applyMetrics: function (payload) {
+				var s = (payload && payload.summary) || {};
+				var lifetime = s.lifetime || {};
+				var total = (lifetime.indexed || 0) + (lifetime.failed || 0) + (lifetime.dropped || 0) + (lifetime.skipped || 0);
+				this.metrics = {
+					window: s.window || {},
+					queue: Object.assign({ size: payload.queue_size || 0 }, s.queue || {}),
+					sparkline: s.sparkline || { indexed: [], failed: [], duration: [], queue: [] },
+					summary_lifetime_indexed: lifetime.indexed || 0,
+					summary_lifetime_failed:  lifetime.failed || 0,
+					summary_lifetime_skipped: lifetime.skipped || 0,
+					summary_lifetime_dropped: lifetime.dropped || 0,
+					summary_lifetime_batches: lifetime.batches || 0,
+					distribution_total: total
+				};
+				var top = s.failure_top || {};
+				this.failureTop = Object.keys(top).map(function (id) { return { id: Number(id), count: Number(top[id]) }; }).sort(function (a, b) { return b.count - a.count; }).slice(0, 10);
+			},
+			startPolling: function () {
+				if (this.poller) return;
+				var self = this;
+				this.poller = window.setInterval(function () {
+					api('GET', '/metrics?window=10').then(function (res) { self.applyMetrics(res); });
+				}, 7000);
+			},
+			stopPolling: function () { if (this.poller) { window.clearInterval(this.poller); this.poller = null; } },
 			testConnection: function () {
 				var self = this;
 				this.loading = true;
@@ -292,6 +524,11 @@
 					self.refresh(true);
 				}).catch(function (e) { self.lastActionMsg = e.message; })
 				.finally(function () { self.loading = false; });
+			},
+			resetMetrics: function () {
+				if (!window.confirm('Zerar histórico de métricas? A indexação continua intacta.')) return;
+				var self = this;
+				api('POST', '/metrics/reset').then(function () { self.refresh(true); });
 			},
 			reindexCollection: function (id) {
 				var self = this;
@@ -326,7 +563,6 @@
 	var SettingsView = {
 		template: '\
 		<div>\
-			<h1 class="tim-title">{{ i18n.settings }}</h1>\
 			<div v-if="loading" class="tim-notice is-info"><span class="tim-loading"></span> Carregando…</div>\
 			<div v-else>\
 				<div v-if="msg" :class="[\'tim-notice\', msgClass]">{{ msg }}</div>\
@@ -352,7 +588,7 @@
 						<div class="tim-field"><label>URL</label><input type="url" v-model="form.es_url" placeholder="https://exemplo:9200"><span class="tim-help">URL completa, incluindo protocolo e porta.</span></div>\
 						<div class="tim-field"><label>Usuário (Basic)</label><input type="text" v-model="form.es_username"></div>\
 						<div class="tim-field"><label>Senha (Basic)</label><input type="password" v-model="form.es_password" placeholder="••••"></div>\
-						<div class="tim-field"><label>API Key (alternativa ao usuário/senha)</label><input type="password" v-model="form.es_api_key" placeholder="••••"></div>\
+						<div class="tim-field"><label>API Key (alternativa)</label><input type="password" v-model="form.es_api_key" placeholder="••••"></div>\
 						<div class="tim-field"><label>Nome do índice</label><input type="text" v-model="form.index_name"></div>\
 						<div class="tim-field"><label>Timeout (segundos)</label><input type="number" min="1" max="60" v-model.number="form.es_timeout"></div>\
 					</div>\
