@@ -387,9 +387,19 @@
 				<section v-if="activeTab === \'integrations\'" role="tabpanel">\
 				<div class="tim-section">\
 					<h2>{{ i18n.elasticpress }}</h2>\
-					<div v-if="!elasticpress.active" class="tim-muted">\
-						<p>O ElasticPress <strong>não está instalado/ativo</strong> neste site — <em>este é um cenário suportado</em>.</p>\
-						<p>O Tainacan Index Manager está operando com o indexador próprio, com mappings otimizados para português brasileiro e cobertura específica de metadados Tainacan. Se um dia o ElasticPress for ativado, este plugin detecta automaticamente e passa a operar em modo somente leitura sobre ele.</p>\
+					<div v-if="!elasticpress.active">\
+						<p>O ElasticPress <strong>não está sendo detectado</strong> neste site. Este é um cenário suportado — o indexador próprio segue operando — mas se você acredita que o ElasticPress deveria estar ativo, a tabela abaixo mostra exatamente quais sinais foram verificados:</p>\
+						<table class="tim-table tim-checks">\
+							<thead><tr><th>Sinal verificado</th><th style="width:7rem">Resultado</th><th>Detalhe</th></tr></thead>\
+							<tbody>\
+								<tr v-for="c in (elasticpress.detection_report || [])" :key="c.key">\
+									<td>{{ c.label }}</td>\
+									<td><span :class="[\'tim-status-pill\', c.pass ? \'tim-green\' : \'tim-unknown\']">{{ c.pass ? \'sim\' : \'não\' }}</span></td>\
+									<td class="tim-muted">{{ c.detail }}</td>\
+								</tr>\
+							</tbody>\
+						</table>\
+						<p class="tim-muted" style="margin-top:0.8rem">Para que o plugin considere o ElasticPress ativo, basta que <strong>uma</strong> das quatro primeiras linhas acima esteja em "sim". A causa mais comum de "não" em todas elas é o ElasticPress estar instalado mas <strong>desativado</strong> em Plugins → Plugins instalados.</p>\
 					</div>\
 					<div v-else>\
 						<p><strong>Versão:</strong> {{ elasticpress.version || \'—\' }}</p>\

@@ -28,8 +28,97 @@ final class ElasticPress_Integration {
 		$this->logger   = $logger;
 	}
 
+	/**
+	 * ElasticPress is considered active when at least one of its public
+	 * footprints is present on PHP-level. We cast a wide net so older and
+	 * newer ElasticPress builds (4.x, 5.x) all match — see detection_report()
+	 * for the full breakdown surfaced to the UI.
+	 */
 	public function is_active(): bool {
-		return defined( 'EP_VERSION' ) || class_exists( '\\ElasticPress\\Elasticsearch' );
+		if ( defined( 'EP_VERSION' ) ) {
+			return true;
+		}
+		if ( class_exists( '\\ElasticPress\\Elasticsearch' ) ) {
+			return true;
+		}
+		if ( class_exists( '\\ElasticPress\\Indexables' ) ) {
+			return true;
+		}
+		if ( function_exists( '\\ElasticPress\\Utils\\get_host' ) ) {
+			return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Itemized list of "is EP here?" signals we look for, so the dashboard
+	 * can render a checklist that explains the decision to the admin.
+	 *
+	 * Useful when the manager swears EP is installed and we say it isn't —
+	 * the table shows exactly which signal is missing.
+	 */
+	public function detection_report(): array {
+		$plugin_active_main   = $this->is_plugin_file_active( 'elasticpress/elasticpress.php' );
+		$plugin_active_dev    = $this->is_plugin_file_active( 'ElasticPress/elasticpress.php' );
+		$ep_dir_present       = is_dir( WP_PLUGIN_DIR . '/elasticpress' );
+		return array(
+			array(
+				'key'    => 'EP_VERSION_defined',
+				'label'  => __( 'Constante PHP `EP_VERSION` definida', 'tainacan-index-manager' ),
+				'pass'   => defined( 'EP_VERSION' ),
+				'detail' => defined( 'EP_VERSION' ) ? (string) EP_VERSION : __( 'não definida — o ElasticPress não chegou a carregar este request.', 'tainacan-index-manager' ),
+			),
+			array(
+				'key'    => 'class_Elasticsearch',
+				'label'  => __( 'Classe `\\ElasticPress\\Elasticsearch` carregada', 'tainacan-index-manager' ),
+				'pass'   => class_exists( '\\ElasticPress\\Elasticsearch' ),
+				'detail' => '',
+			),
+			array(
+				'key'    => 'class_Indexables',
+				'label'  => __( 'Classe `\\ElasticPress\\Indexables` carregada', 'tainacan-index-manager' ),
+				'pass'   => class_exists( '\\ElasticPress\\Indexables' ),
+				'detail' => '',
+			),
+			array(
+				'key'    => 'fn_get_host',
+				'label'  => __( 'Função `\\ElasticPress\\Utils\\get_host` declarada', 'tainacan-index-manager' ),
+				'pass'   => function_exists( '\\ElasticPress\\Utils\\get_host' ),
+				'detail' => '',
+			),
+			array(
+				'key'    => 'plugin_active_main',
+				'label'  => __( 'Plugin ativo: `elasticpress/elasticpress.php`', 'tainacan-index-manager' ),
+				'pass'   => $plugin_active_main,
+				'detail' => '',
+			),
+			array(
+				'key'    => 'plugin_active_dev',
+				'label'  => __( 'Plugin ativo: `ElasticPress/elasticpress.php` (build de dev)', 'tainacan-index-manager' ),
+				'pass'   => $plugin_active_dev,
+				'detail' => '',
+			),
+			array(
+				'key'    => 'plugin_dir_exists',
+				'label'  => __( 'Diretório `wp-content/plugins/elasticpress/` existe', 'tainacan-index-manager' ),
+				'pass'   => $ep_dir_present,
+				'detail' => $ep_dir_present ? '' : __( 'pasta não encontrada — o plugin não foi instalado neste site.', 'tainacan-index-manager' ),
+			),
+		);
+	}
+
+	/**
+	 * Wrapper around is_plugin_active() that handles the late-loading of
+	 * wp-admin/includes/plugin.php on the front + multisite checks.
+	 */
+	private function is_plugin_file_active( string $basename ): bool {
+		if ( ! function_exists( 'is_plugin_active' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+		if ( function_exists( 'is_plugin_active_for_network' ) && is_plugin_active_for_network( $basename ) ) {
+			return true;
+		}
+		return is_plugin_active( $basename );
 	}
 
 	public function get_version(): ?string {
@@ -83,12 +172,13 @@ final class ElasticPress_Integration {
 	 */
 	public function snapshot(): array {
 		return array(
-			'active'       => $this->is_active(),
-			'version'      => $this->get_version(),
-			'host'         => $this->get_host(),
-			'index_names'  => $this->get_index_names(),
-			'last_sync_ts' => $this->get_last_sync_ts(),
-			'sync_state'   => $this->get_sync_state(),
+			'active'           => $this->is_active(),
+			'version'          => $this->get_version(),
+			'host'             => $this->get_host(),
+			'index_names'      => $this->get_index_names(),
+			'last_sync_ts'     => $this->get_last_sync_ts(),
+			'sync_state'       => $this->get_sync_state(),
+			'detection_report' => $this->detection_report(),
 		);
 	}
 

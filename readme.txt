@@ -4,7 +4,7 @@ Tags: tainacan, elasticsearch, opensearch, elasticpress, search, indexing
 Requires at least: 6.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.1.8
+Stable tag: 1.1.9
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -49,6 +49,16 @@ Não. O plugin pode operar com o indexador próprio. Se o ElasticPress estiver a
 A busca degrada automaticamente para SQL, um alerta é levantado e o evento é registrado nos logs.
 
 == Changelog ==
+
+= 1.1.9 =
+* A aba **Integrações** agora exibe, quando o ElasticPress não é detectado, uma tabela com os 7 sinais
+  que foram verificados (constantes, classes, função utilitária, plugin ativo no WP, plugin ativo na rede,
+  diretório no filesystem). Para cada um: "sim" / "não" + detalhe. Resposta direta para "por que o plugin
+  diz que o EP não está ativo?" — mostra exatamente qual sinal está faltando.
+* `ElasticPress_Integration::is_active()` ampliado: agora considera ativo se qualquer um destes for
+  verdadeiro — `defined('EP_VERSION')`, `class_exists('\\ElasticPress\\Elasticsearch')`,
+  `class_exists('\\ElasticPress\\Indexables')`, `function_exists('\\ElasticPress\\Utils\\get_host')`.
+* Checagem de plugin ativo inclui agora ativação **na rede** (multisite).
 
 = 1.1.8 =
 * Sem mais "logs zumbis" do tipo `Erro HTTP retornado por Elasticsearch` para cada coleção quando o
