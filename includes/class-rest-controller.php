@@ -282,12 +282,23 @@ final class REST_Controller {
 			}
 		}
 
+		// Detect whether the incoming URL carried inline `user:pass@` — Settings::update()
+		// will quietly migrate them; the UI wants to confirm this happened.
+		$migrated_inline = false;
+		if ( isset( $body['es_url'] ) && is_string( $body['es_url'] ) && '' !== trim( $body['es_url'] ) ) {
+			$parsed = Elasticsearch_Client::parse_inline_credentials( trim( $body['es_url'] ) );
+			$migrated_inline = ( '' !== $parsed['user'] || '' !== $parsed['pass'] );
+		}
+
 		$ok = $this->settings->update( is_array( $body ) ? $body : array() );
-		$this->logger->info( Logger::CHAN_ADMIN, 'Configurações atualizadas.' );
+		$this->logger->info( Logger::CHAN_ADMIN, 'Configurações atualizadas.', array(
+			'migrated_inline_credentials' => $migrated_inline,
+		) );
 
 		return rest_ensure_response( array(
-			'ok'       => $ok,
-			'settings' => $this->settings->to_public_array(),
+			'ok'                          => $ok,
+			'settings'                    => $this->settings->to_public_array(),
+			'migrated_inline_credentials' => $migrated_inline,
 		) );
 	}
 

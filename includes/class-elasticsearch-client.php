@@ -319,7 +319,9 @@ class Elasticsearch_Client {
 	}
 
 	protected function base_url(): string {
-		return untrailingslashit( (string) $this->settings->get( 'es_url', '' ) );
+		$raw    = (string) $this->settings->get( 'es_url', '' );
+		$parsed = self::parse_inline_credentials( $raw );
+		return untrailingslashit( $parsed['url'] );
 	}
 
 	protected function timeout(): int {
@@ -327,20 +329,104 @@ class Elasticsearch_Client {
 	}
 
 	/**
-	 * Build authentication headers from settings (basic auth or API key).
+	 * Build authentication headers.
+	 *
+	 * Precedence:
+	 *   1. Explicit API Key in settings
+	 *   2. Explicit Basic Auth in settings (es_username/es_password)
+	 *   3. Inline `user:pass@host` extracted from es_url (handles URLs the
+	 *      user pasted with credentials baked in, including passwords that
+	 *      themselves contain `@`)
+	 *
+	 * WP_Http does NOT translate URL userinfo into an Authorization header,
+	 * so without (3) requests would silently go out unauthenticated.
 	 */
 	protected function auth_headers(): array {
 		$headers = array();
-		$user    = (string) $this->settings->get( 'es_username', '' );
-		$pass    = (string) $this->settings->get( 'es_password', '' );
 		$apikey  = (string) $this->settings->get( 'es_api_key', '' );
 
 		if ( '' !== $apikey ) {
 			$headers['Authorization'] = 'ApiKey ' . $apikey;
-		} elseif ( '' !== $user || '' !== $pass ) {
+			return $headers;
+		}
+
+		$user = (string) $this->settings->get( 'es_username', '' );
+		$pass = (string) $this->settings->get( 'es_password', '' );
+
+		if ( '' === $user && '' === $pass ) {
+			$inline = self::parse_inline_credentials( (string) $this->settings->get( 'es_url', '' ) );
+			$user   = (string) $inline['user'];
+			$pass   = (string) $inline['pass'];
+		}
+
+		if ( '' !== $user || '' !== $pass ) {
 			$headers['Authorization'] = 'Basic ' . base64_encode( $user . ':' . $pass );
 		}
 		return $headers;
+	}
+
+	/**
+	 * Describe which auth method (if any) would be used right now.
+	 * Read-only — handy for the "Test connection" feedback in the UI.
+	 *
+	 * @return array{method:string, user:string}
+	 */
+	public function describe_auth(): array {
+		$apikey = (string) $this->settings->get( 'es_api_key', '' );
+		if ( '' !== $apikey ) {
+			return array( 'method' => 'api_key', 'user' => '' );
+		}
+		$user = (string) $this->settings->get( 'es_username', '' );
+		$pass = (string) $this->settings->get( 'es_password', '' );
+		if ( '' !== $user || '' !== $pass ) {
+			return array( 'method' => 'basic_auth', 'user' => $user );
+		}
+		$inline = self::parse_inline_credentials( (string) $this->settings->get( 'es_url', '' ) );
+		if ( '' !== $inline['user'] || '' !== $inline['pass'] ) {
+			return array( 'method' => 'basic_auth_inline', 'user' => $inline['user'] );
+		}
+		return array( 'method' => 'none', 'user' => '' );
+	}
+
+	/**
+	 * Public helper to obtain the URL the client would actually hit (with
+	 * any embedded `user:pass@` stripped) — useful for diagnostic UI.
+	 */
+	public function effective_base_url(): string {
+		return $this->base_url();
+	}
+
+	/**
+	 * Extract embedded `user:pass@` credentials from a URL.
+	 *
+	 * Handles the awkward case where the password itself contains an `@`
+	 * (e.g. `http://elastic:Elastic@Tainacan@host:9200`). parse_url() is
+	 * unreliable on multi-`@` userinfo, so we use a greedy regex that takes
+	 * everything up to the LAST `@` before the host as userinfo.
+	 *
+	 * Returns the URL stripped of userinfo plus the decoded user/pass.
+	 *
+	 * @return array{url:string, user:string, pass:string}
+	 */
+	public static function parse_inline_credentials( string $url ): array {
+		$out = array( 'url' => $url, 'user' => '', 'pass' => '' );
+		if ( '' === $url ) {
+			return $out;
+		}
+		// scheme://...@host[:port][/...]
+		if ( ! preg_match( '#^(https?://)(.*)@([^@/]+(?::\d+)?)(/.*)?$#i', $url, $m ) ) {
+			return $out;
+		}
+		$userinfo = $m[2];
+		$colon    = strpos( $userinfo, ':' );
+		if ( false === $colon ) {
+			$out['user'] = rawurldecode( $userinfo );
+		} else {
+			$out['user'] = rawurldecode( substr( $userinfo, 0, $colon ) );
+			$out['pass'] = rawurldecode( substr( $userinfo, $colon + 1 ) );
+		}
+		$out['url'] = $m[1] . $m[3] . ( isset( $m[4] ) ? $m[4] : '' );
+		return $out;
 	}
 
 	/**

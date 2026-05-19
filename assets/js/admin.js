@@ -627,9 +627,16 @@
 				var self = this;
 				this.loading = true;
 				api('POST', '/test-connection').then(function (res) {
+					var authLabel = ({
+						api_key:            'API Key',
+						basic_auth:         'Basic Auth (campos próprios)',
+						basic_auth_inline:  'Basic Auth (credenciais detectadas na URL)',
+						none:               'sem autenticação'
+					})[res.auth] || res.auth || '—';
+					var ctx = ' · URL: ' + (res.url || '—') + ' · Auth: ' + authLabel + (res.auth_user ? ' (' + res.auth_user + ')' : '');
 					self.lastActionMsg = res.ok
-						? (i18n.connection_ok + ' (' + res.ms + ' ms)')
-						: (i18n.connection_failed + ': ' + (res.error || ('HTTP ' + res.code)));
+						? (i18n.connection_ok + ' (' + res.ms + ' ms)' + ctx)
+						: (i18n.connection_failed + ': ' + (res.error || ('HTTP ' + res.code)) + ctx);
 				}).catch(function (e) { self.lastActionMsg = e.message; })
 				.finally(function () { self.loading = false; });
 			},
@@ -806,6 +813,9 @@
 				api('POST', '/settings', self.form).then(function (res) {
 					if (res.settings) { self.form = res.settings; }
 					self.msg = 'Configurações salvas.';
+					if (res.migrated_inline_credentials) {
+						self.msg += ' Detectamos credenciais embutidas na URL e migramos para os campos "Usuário" e "Senha" — a URL agora aparece limpa.';
+					}
 					self.msgClass = 'is-success';
 				}).catch(function (e) { self.msg = e.message; self.msgClass = 'is-error'; })
 				.finally(function () { self.saving = false; });
@@ -813,8 +823,17 @@
 			testConnection: function () {
 				var self = this;
 				api('POST', '/test-connection').then(function (res) {
-					self.msg = res.ok ? (i18n.connection_ok + ' (' + res.ms + ' ms)') : (i18n.connection_failed + ': ' + (res.error || ('HTTP ' + res.code)));
+					var authLabel = ({
+						api_key:            'API Key',
+						basic_auth:         'Basic Auth (campos próprios)',
+						basic_auth_inline:  'Basic Auth (credenciais detectadas na URL)',
+						none:               'sem autenticação'
+					})[res.auth] || res.auth || '—';
+					var ctx = ' · URL testada: ' + (res.url || '—') + ' · Auth: ' + authLabel + (res.auth_user ? ' (' + res.auth_user + ')' : '');
+					self.msg = res.ok ? (i18n.connection_ok + ' (' + res.ms + ' ms)' + ctx) : (i18n.connection_failed + ': ' + (res.error || ('HTTP ' + res.code)) + ctx);
 					self.msgClass = res.ok ? 'is-success' : 'is-error';
+					// Inline credentials may have been migrated to es_username/es_password — reload form.
+					self.load();
 				});
 			},
 			createIndex: function () {

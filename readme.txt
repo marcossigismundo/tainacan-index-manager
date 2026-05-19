@@ -4,7 +4,7 @@ Tags: tainacan, elasticsearch, opensearch, elasticpress, search, indexing
 Requires at least: 6.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.1.5
+Stable tag: 1.1.6
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -49,6 +49,24 @@ Não. O plugin pode operar com o indexador próprio. Se o ElasticPress estiver a
 A busca degrada automaticamente para SQL, um alerta é levantado e o evento é registrado nos logs.
 
 == Changelog ==
+
+= 1.1.6 =
+* Aceita URLs com credenciais embutidas no formato `http://user:senha@host:porta` — inclusive senhas
+  que contenham `@`, como `http://elastic:Elastic@Tainacan@elasticsearch.tainacan.svc.cluster.local:9200`.
+  O parser usa regex greedy até o último `@` antes do host, evitando a ambiguidade que faz `parse_url`
+  retornar lixo em senhas com `@`.
+* Ao salvar Configurações, o plugin agora **extrai automaticamente** as credenciais embutidas da URL
+  e migra para os campos "Usuário" e "Senha". A URL salva fica limpa. O painel exibe mensagem confirmando
+  a migração. Importante porque `wp_remote_*` não traduz userinfo da URL para header `Authorization` —
+  sem esta migração, o plugin ia silenciosamente fazer requests sem credenciais.
+* O cliente HTTP também tem fallback inline: mesmo sem a migração, requisições continuam autenticadas
+  se a URL trouxer userinfo.
+* "Testar conexão" passa a informar **URL testada** (sem userinfo) e **método de autenticação detectado**
+  (API Key / Basic Auth campos próprios / Basic Auth inline / sem autenticação), facilitando diagnóstico.
+* Diagnóstico ganhou regras específicas para falha de conexão:
+  - HTTP 401/403 → "Elasticsearch recusou as credenciais"
+  - DNS / `getaddrinfo` → "Host do Elasticsearch não resolve" (com dica de Kubernetes)
+  - Timeout / connection refused → "Inalcançável — verificar serviço/firewall"
 
 = 1.1.5 =
 * Nova caixa de **Diagnóstico** no topo do painel: avalia conectividade, índice, cluster, latência,

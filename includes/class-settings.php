@@ -88,11 +88,37 @@ final class Settings {
 	/**
 	 * Update settings atomically. Only known keys are written.
 	 *
+	 * Side effect: when `es_url` arrives with inline `user:pass@` credentials,
+	 * we extract them into `es_username` / `es_password` and store the URL
+	 * stripped of userinfo. This:
+	 *  - makes the saved fields reflect reality (the manager can see what's
+	 *    being used for auth);
+	 *  - avoids relying on `wp_remote_*` to honour URL userinfo (it doesn't);
+	 *  - handles passwords containing `@` correctly via the client's regex.
+	 *
+	 * Explicit values on the same update take precedence — if the caller
+	 * sends both an inline-credentialed URL and an explicit es_password, the
+	 * explicit one wins.
+	 *
 	 * @param array $partial Partial array of settings.
 	 */
 	public function update( array $partial ): bool {
 		$defaults = self::defaults();
 		$current  = $this->cache;
+
+		// Pre-process es_url for inline credentials before normal sanitization.
+		if ( isset( $partial['es_url'] ) && is_string( $partial['es_url'] ) && '' !== trim( $partial['es_url'] ) ) {
+			$parsed = Elasticsearch_Client::parse_inline_credentials( trim( $partial['es_url'] ) );
+			if ( '' !== $parsed['user'] || '' !== $parsed['pass'] ) {
+				$partial['es_url'] = $parsed['url'];
+				if ( ! isset( $partial['es_username'] ) || '' === (string) $partial['es_username'] ) {
+					$partial['es_username'] = $parsed['user'];
+				}
+				if ( ! isset( $partial['es_password'] ) || '' === (string) $partial['es_password'] || '__set__' === $partial['es_password'] ) {
+					$partial['es_password'] = $parsed['pass'];
+				}
+			}
+		}
 
 		foreach ( $partial as $k => $v ) {
 			if ( ! array_key_exists( $k, $defaults ) ) {

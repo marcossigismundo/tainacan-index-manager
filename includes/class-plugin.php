@@ -72,7 +72,7 @@ final class Plugin {
 			$this->indexer       = new Indexer( $this->settings, $this->logger, $this->index_manager, $this->metrics );
 			$this->elasticpress  = new ElasticPress_Integration( $this->settings, $this->logger );
 			$this->search        = new Search_Integration( $this->settings, $this->logger, $this->elasticpress );
-			$this->diagnostics   = new Diagnostics( $this->settings, $this->health, $this->indexer, $this->metrics, $this->collections, $this->elasticpress );
+			$this->diagnostics   = new Diagnostics( $this->settings, $this->health, $this->indexer, $this->metrics, $this->collections, $this->elasticpress, $this->logger );
 			$this->cron          = new Cron( $this->settings, $this->health, $this->indexer, $this->collections, $this->logger );
 			$this->rest          = new REST_Controller( $this->settings, $this->health, $this->indexer, $this->index_manager, $this->collections, $this->elasticpress, $this->logger, $this->alerts, $this->metrics, $this->diagnostics );
 			$this->admin         = new Admin_Page( $this->settings, $this->health, $this->logger, $this->alerts );

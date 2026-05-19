@@ -144,15 +144,22 @@ final class Index_Manager {
 	}
 
 	/**
-	 * Test connectivity. Returns a structured array.
+	 * Test connectivity. Returns a structured array including the URL the
+	 * client actually hits (with userinfo stripped) and the auth method
+	 * resolved from settings — so a confused manager can immediately see
+	 * what was tried.
 	 */
 	public function test_connection(): array {
 		$ping = $this->client->ping();
+		$auth = $this->client->describe_auth();
 		return array(
-			'ok'     => (bool) $ping['ok'],
-			'ms'     => (int) $ping['ms'],
-			'code'   => (int) $ping['code'],
-			'error'  => (string) ( $ping['error'] ?? '' ),
+			'ok'         => (bool) $ping['ok'],
+			'ms'         => (int) $ping['ms'],
+			'code'       => (int) $ping['code'],
+			'error'      => (string) ( $ping['error'] ?? '' ),
+			'url'        => $this->client->effective_base_url(),
+			'auth'       => $auth['method'],
+			'auth_user'  => $auth['user'],
 		);
 	}
 

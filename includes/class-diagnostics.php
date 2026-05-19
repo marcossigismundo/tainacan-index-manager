@@ -36,6 +36,7 @@ final class Diagnostics {
 	private Indexer_Metrics $metrics;
 	private Collections_Monitor $collections;
 	private ElasticPress_Integration $elasticpress;
+	private Logger $logger;
 
 	public function __construct(
 		Settings $settings,
@@ -43,7 +44,8 @@ final class Diagnostics {
 		Indexer $indexer,
 		Indexer_Metrics $metrics,
 		Collections_Monitor $collections,
-		ElasticPress_Integration $elasticpress
+		ElasticPress_Integration $elasticpress,
+		Logger $logger
 	) {
 		$this->settings     = $settings;
 		$this->health       = $health;
@@ -51,6 +53,7 @@ final class Diagnostics {
 		$this->metrics      = $metrics;
 		$this->collections  = $collections;
 		$this->elasticpress = $elasticpress;
+		$this->logger       = $logger;
 	}
 
 	/**
@@ -78,13 +81,69 @@ final class Diagnostics {
 		}
 
 		if ( ! $snapshot['es_reachable'] ) {
-			$findings[] = $this->finding(
-				'critical',
-				__( 'Elasticsearch indisponível', 'tainacan-index-manager' ),
-				__( 'O servidor de busca não respondeu. A busca está em modo SQL temporariamente.', 'tainacan-index-manager' ),
-				__( 'Verifique se o serviço está no ar, se a URL está correta e se as credenciais (Basic Auth ou API Key) seguem válidas. Use "Testar conexão" após corrigir.', 'tainacan-index-manager' ),
-				$settings_url
-			);
+			// Try a fresh ping so we can give context-specific advice
+			// (auth vs DNS vs timeout) instead of a generic "unavailable".
+			$client = new Elasticsearch_Client( $this->settings, $this->logger );
+			$ping   = $client->ping();
+			$code   = (int) ( $ping['code'] ?? 0 );
+			$err    = (string) ( $ping['error'] ?? '' );
+
+			if ( 401 === $code || 403 === $code ) {
+				$findings[] = $this->finding(
+					'critical',
+					__( 'Elasticsearch recusou as credenciais', 'tainacan-index-manager' ),
+					sprintf(
+						/* translators: %d HTTP status */
+						__( 'O cluster respondeu HTTP %d (não autorizado). A URL é alcançável, mas o usuário/senha (ou API Key) não passou na autenticação.', 'tainacan-index-manager' ),
+						$code
+					),
+					__( 'Abra Configurações de Indexação, confira usuário e senha (ou a API Key) e clique em "Testar conexão". Se a URL contém credenciais embutidas no formato user:senha@host, o plugin agora extrai automaticamente — basta colar a URL completa e salvar.', 'tainacan-index-manager' ),
+					$settings_url
+				);
+			} elseif ( false !== stripos( $err, 'name or service not known' )
+				|| false !== stripos( $err, 'could not resolve host' )
+				|| false !== stripos( $err, 'getaddrinfo' )
+			) {
+				$findings[] = $this->finding(
+					'critical',
+					__( 'Host do Elasticsearch não resolve', 'tainacan-index-manager' ),
+					sprintf(
+						/* translators: %s = error text */
+						__( 'Falha de DNS ao consultar o cluster: %s. Em ambientes Kubernetes, confirme que o WordPress está no mesmo namespace/cluster do serviço, ou use IP/hostname externo.', 'tainacan-index-manager' ),
+						$err
+					),
+					__( 'Confira a URL informada (scheme, host, porta) e a rede entre o WordPress e o cluster.', 'tainacan-index-manager' ),
+					$settings_url
+				);
+			} elseif ( false !== stripos( $err, 'timeout' )
+				|| false !== stripos( $err, 'timed out' )
+				|| false !== stripos( $err, 'connection refused' )
+			) {
+				$findings[] = $this->finding(
+					'critical',
+					__( 'Elasticsearch inalcançável (timeout / conexão recusada)', 'tainacan-index-manager' ),
+					sprintf(
+						/* translators: %s = error text */
+						__( 'Não foi possível abrir conexão: %s. O serviço pode estar fora do ar, em outra porta, ou bloqueado por firewall/security group.', 'tainacan-index-manager' ),
+						$err
+					),
+					__( 'Verifique se o serviço responde de dentro do mesmo host/cluster do WordPress (curl http://host:9200) e revise regras de firewall.', 'tainacan-index-manager' ),
+					$settings_url
+				);
+			} else {
+				$findings[] = $this->finding(
+					'critical',
+					__( 'Elasticsearch indisponível', 'tainacan-index-manager' ),
+					sprintf(
+						/* translators: %1$d HTTP code, %2$s error */
+						__( 'A busca está em modo SQL temporariamente. HTTP retornado: %1$d. Erro: %2$s.', 'tainacan-index-manager' ),
+						$code,
+						'' !== $err ? $err : __( '(sem detalhe)', 'tainacan-index-manager' )
+					),
+					__( 'Verifique se o serviço está no ar, se a URL está correta e se as credenciais seguem válidas. Use "Testar conexão" após corrigir.', 'tainacan-index-manager' ),
+					$settings_url
+				);
+			}
 			return $this->compile( $findings );
 		}
 
