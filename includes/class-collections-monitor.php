@@ -51,6 +51,15 @@ final class Collections_Monitor {
 		$index     = (string) $this->settings->get( 'index_name' );
 		$es_ok     = $this->client->is_configured();
 
+		// Pre-check: a single index_exists() call here avoids hitting _count
+		// per collection (and logging a 404 per collection) when the index
+		// hasn't been created yet — a common state right after setup.
+		$index_exists = false;
+		if ( $es_ok ) {
+			$check        = $this->client->index_exists( $index );
+			$index_exists = is_bool( $check ) ? $check : false;
+		}
+
 		$rows = array();
 
 		if ( ! class_exists( '\\Tainacan\\Repositories\\Collections' ) ) {
@@ -85,7 +94,13 @@ final class Collections_Monitor {
 
 				$indexed_count = null;
 				$indexed_error = '';
-				if ( $es_ok ) {
+				if ( ! $es_ok ) {
+					// no-op: column stays "—"
+				} elseif ( ! $index_exists ) {
+					// Index hasn't been created yet — nothing indexed by definition.
+					// Don't issue an HTTP call per collection.
+					$indexed_count = 0;
+				} else {
 					$res = $this->client->count( $index, array(
 						'query' => array(
 							'bool' => array(

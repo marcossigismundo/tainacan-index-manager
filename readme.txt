@@ -4,7 +4,7 @@ Tags: tainacan, elasticsearch, opensearch, elasticpress, search, indexing
 Requires at least: 6.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.1.7
+Stable tag: 1.1.8
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -49,6 +49,16 @@ Não. O plugin pode operar com o indexador próprio. Se o ElasticPress estiver a
 A busca degrada automaticamente para SQL, um alerta é levantado e o evento é registrado nos logs.
 
 == Changelog ==
+
+= 1.1.8 =
+* Sem mais "logs zumbis" do tipo `Erro HTTP retornado por Elasticsearch` para cada coleção quando o
+  índice ainda não foi criado. `Collections_Monitor` agora faz uma única verificação `index_exists()`
+  no início do relatório; se o índice ainda não existe, todas as coleções recebem `indexed=0`
+  silenciosamente, sem chamadas extra ao `_count` e sem entradas de log.
+* Mensagens de erro do cliente Elasticsearch agora carregam o `error.type` + `error.reason` extraídos
+  do body JSON do ES (com drill em `caused_by.reason` quando presente). No log isso aparece no título
+  da entrada (ex.: `Elasticsearch HTTP 404 em /tainacan_items/_count — index_not_found_exception`)
+  e no `WP_Error::get_error_message()` retornado a quem chamou o cliente.
 
 = 1.1.7 =
 * Renomeada a página principal de "Saúde da Busca" para **"Gestão da Indexação"** — escopo melhor descrito,

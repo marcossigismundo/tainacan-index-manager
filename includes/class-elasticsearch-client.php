@@ -251,23 +251,60 @@ class Elasticsearch_Client {
 		$body = (string) wp_remote_retrieve_body( $res );
 
 		if ( $code >= 400 ) {
-			$this->logger->error( Logger::CHAN_ELASTIC, 'Erro HTTP retornado por Elasticsearch.', array(
-				'method' => $method,
-				'path'   => $path,
-				'code'   => $code,
-				'body'   => substr( $body, 0, 2000 ),
+			// Extract structured ES error info from the body when present
+			// (it ships type + reason + sometimes caused_by — far more useful
+			// in the log than the raw body blob).
+			$decoded   = json_decode( $body, true );
+			$err_type  = '';
+			$err_reason = '';
+			if ( is_array( $decoded ) && isset( $decoded['error'] ) ) {
+				if ( is_array( $decoded['error'] ) ) {
+					$err_type   = (string) ( $decoded['error']['type'] ?? '' );
+					$err_reason = (string) ( $decoded['error']['reason'] ?? '' );
+					if ( isset( $decoded['error']['caused_by']['reason'] ) ) {
+						$err_reason .= ' [caused_by: ' . (string) $decoded['error']['caused_by']['reason'] . ']';
+					}
+				} else {
+					$err_reason = (string) $decoded['error'];
+				}
+			}
+
+			$short_message = sprintf(
+				/* translators: %1$d HTTP code, %2$s path */
+				__( 'Elasticsearch HTTP %1$d em %2$s', 'tainacan-index-manager' ),
+				$code,
+				$path
+			);
+			if ( '' !== $err_type ) {
+				$short_message .= ' — ' . $err_type;
+			}
+
+			$this->logger->error( Logger::CHAN_ELASTIC, $short_message, array(
+				'method'     => $method,
+				'path'       => $path,
+				'code'       => $code,
+				'error_type' => $err_type,
+				'reason'     => $err_reason,
 			) );
+
+			$wp_error_message = '' !== $err_reason
+				? sprintf(
+					/* translators: %1$d HTTP code, %2$s ES type, %3$s ES reason */
+					__( 'Elasticsearch HTTP %1$d (%2$s): %3$s', 'tainacan-index-manager' ),
+					$code,
+					'' !== $err_type ? $err_type : '—',
+					$err_reason
+				)
+				: $short_message;
+
 			return new \WP_Error(
 				'tim_es_http_' . $code,
-				sprintf(
-					/* translators: %1$d = HTTP status, %2$s = ES path */
-					__( 'Elasticsearch retornou HTTP %1$d em %2$s.', 'tainacan-index-manager' ),
-					$code,
-					$path
-				),
+				$wp_error_message,
 				array(
-					'code' => $code,
-					'body' => $body,
+					'code'       => $code,
+					'error_type' => $err_type,
+					'reason'     => $err_reason,
+					'body'       => $body,
 				)
 			);
 		}
