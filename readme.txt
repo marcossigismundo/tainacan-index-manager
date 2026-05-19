@@ -4,7 +4,7 @@ Tags: tainacan, elasticsearch, opensearch, elasticpress, search, indexing
 Requires at least: 6.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.1.6
+Stable tag: 1.1.7
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -49,6 +49,16 @@ Não. O plugin pode operar com o indexador próprio. Se o ElasticPress estiver a
 A busca degrada automaticamente para SQL, um alerta é levantado e o evento é registrado nos logs.
 
 == Changelog ==
+
+= 1.1.7 =
+* Renomeada a página principal de "Saúde da Busca" para **"Gestão da Indexação"** — escopo melhor descrito,
+  tanto no menu do Tainacan quanto no fallback standalone, no header da página e no link de ação do plugin.
+* Painel reorganizado em **abas**: Visão geral, Indexação, Coleções, Alertas, Logs, Integrações.
+  A caixa de diagnóstico fica acima das abas como resumo permanente. A aba Alertas exibe um *badge* com
+  a contagem atual de alertas ativos. Trocas de aba destroem/recriam o conteúdo via `v-if` para garantir
+  que sparklines (canvas) recalculem dimensões ao aparecer.
+* O link de ação na listagem de plugins agora aponta para o slug correto da página
+  (`tainacan_idxmgr_dashboard`) — antes apontava para um slug obsoleto.
 
 = 1.1.6 =
 * Aceita URLs com credenciais embutidas no formato `http://user:senha@host:porta` — inclusive senhas

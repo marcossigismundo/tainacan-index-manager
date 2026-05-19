@@ -115,8 +115,8 @@ final class Admin_Page {
 
 	public function register_fallback_menu(): void {
 		add_menu_page(
-			__( 'Saúde da Busca', 'tainacan-index-manager' ),
-			__( 'Saúde da Busca', 'tainacan-index-manager' ),
+			__( 'Gestão da Indexação', 'tainacan-index-manager' ),
+			__( 'Gestão da Indexação', 'tainacan-index-manager' ),
 			'manage_options',
 			self::DASHBOARD_SLUG,
 			array( $this, 'render_fallback_dashboard' ),
@@ -135,7 +135,7 @@ final class Admin_Page {
 
 	public function render_fallback_dashboard(): void {
 		echo '<div class="wrap tainacan-idxmgr-wrap is-standalone">';
-		echo '<h1 class="tim-title">' . esc_html__( 'Saúde da Busca', 'tainacan-index-manager' ) . '</h1>';
+		echo '<h1 class="tim-title">' . esc_html__( 'Gestão da Indexação', 'tainacan-index-manager' ) . '</h1>';
 		echo '<div id="tainacan-idxmgr-app" data-view="dashboard"></div>';
 		echo '</div>';
 	}
@@ -201,7 +201,7 @@ final class Admin_Page {
 	 */
 	private static function i18n_strings(): array {
 		return array(
-			'dashboard'          => __( 'Saúde da Busca', 'tainacan-index-manager' ),
+			'dashboard'          => __( 'Gestão da Indexação', 'tainacan-index-manager' ),
 			'settings'           => __( 'Configurações de Indexação', 'tainacan-index-manager' ),
 			'logs'               => __( 'Logs', 'tainacan-index-manager' ),
 			'alerts'             => __( 'Alertas', 'tainacan-index-manager' ),

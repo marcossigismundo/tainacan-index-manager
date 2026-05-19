@@ -177,6 +177,13 @@
 					</ul>\
 				</section>\
 \
+				<nav class="tim-tabs" role="tablist">\
+					<button v-for="t in tabs" :key="t.id" :class="[\'tim-tab\', { \'is-active\': activeTab === t.id }]" @click="activeTab = t.id" role="tab" :aria-selected="activeTab === t.id">\
+						{{ t.label }}<span class="tim-tab-badge" v-if="t.badge">{{ t.badge }}</span>\
+					</button>\
+				</nav>\
+\
+				<section v-if="activeTab === \'overview\'" role="tabpanel">\
 				<div class="tim-cards">\
 					<div :class="[\'tim-card\', cardClass(snapshot.overall_status)]">\
 						<span class="tim-card-label">{{ i18n.overview }}</span>\
@@ -224,6 +231,9 @@
 					</div>\
 				</div>\
 \
+				</section>\
+\
+				<section v-if="activeTab === \'indexing\'" role="tabpanel">\
 				<div class="tim-section">\
 					<div class="tim-section-header">\
 						<h2>{{ i18n.metrics }}</h2>\
@@ -329,7 +339,9 @@
 \
 				<div class="tim-notice is-warning" v-if="autoIndexingHint">{{ autoIndexingHint }}</div>\
 				<div class="tim-notice is-success" v-if="lastActionMsg">{{ lastActionMsg }}</div>\
+				</section>\
 \
+				<section v-if="activeTab === \'collections\'" role="tabpanel">\
 				<div class="tim-section">\
 					<h2>{{ i18n.collections }}</h2>\
 					<table class="tim-table" v-if="collections.rows && collections.rows.length">\
@@ -356,7 +368,9 @@
 					</table>\
 					<p class="tim-muted" v-else>{{ collections.message || \'Sem coleções para exibir.\' }}</p>\
 				</div>\
+				</section>\
 \
+				<section v-if="activeTab === \'alerts\'" role="tabpanel">\
 				<div class="tim-section">\
 					<h2>{{ i18n.alerts }} <span class="tim-muted">({{ alerts.length }})</span></h2>\
 					<ul class="tim-alerts" v-if="alerts.length">\
@@ -368,7 +382,9 @@
 					</ul>\
 					<p class="tim-muted" v-else>Sem alertas ativos.</p>\
 				</div>\
+				</section>\
 \
+				<section v-if="activeTab === \'integrations\'" role="tabpanel">\
 				<div class="tim-section">\
 					<h2>{{ i18n.elasticpress }}</h2>\
 					<div v-if="!elasticpress.active" class="tim-muted">\
@@ -383,7 +399,9 @@
 						<button class="tim-btn is-secondary" @click="epSync">{{ i18n.sync_now }}</button>\
 					</div>\
 				</div>\
+				</section>\
 \
+				<section v-if="activeTab === \'logs\'" role="tabpanel">\
 				<div class="tim-section">\
 					<h2>{{ i18n.logs }}</h2>\
 					<div class="tim-actions">\
@@ -403,10 +421,12 @@
 					</table>\
 					<p class="tim-muted" v-else>Sem registros.</p>\
 				</div>\
+				</section>\
 			</template>\
 		</div>',
 		data: function () {
 			return {
+				activeTab: 'overview',
 				initialLoading: true,
 				loading: false,
 				errorMsg: '',
@@ -425,6 +445,16 @@
 			};
 		},
 		computed: {
+			tabs: function () {
+				return [
+					{ id: 'overview',     label: 'Visão geral' },
+					{ id: 'indexing',     label: 'Indexação' },
+					{ id: 'collections',  label: 'Coleções' },
+					{ id: 'alerts',       label: 'Alertas', badge: this.alerts.length || '' },
+					{ id: 'logs',         label: 'Logs' },
+					{ id: 'integrations', label: 'Integrações' }
+				];
+			},
 			sparkIndexed:  function () { return (this.metrics && this.metrics.sparkline && this.metrics.sparkline.indexed)  || []; },
 			sparkFailed:   function () { return (this.metrics && this.metrics.sparkline && this.metrics.sparkline.failed)   || []; },
 			sparkDuration: function () { return (this.metrics && this.metrics.sparkline && this.metrics.sparkline.duration) || []; },

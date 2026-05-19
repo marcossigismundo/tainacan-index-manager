@@ -108,8 +108,8 @@ final class Plugin {
 	}
 
 	public function plugin_action_links( array $links ): array {
-		$url      = admin_url( 'admin.php?page=tainacan_index_manager' );
-		$settings = '<a href="' . esc_url( $url ) . '">' . esc_html__( 'Painel', 'tainacan-index-manager' ) . '</a>';
+		$url      = admin_url( 'admin.php?page=' . Admin_Page::DASHBOARD_SLUG );
+		$settings = '<a href="' . esc_url( $url ) . '">' . esc_html__( 'Gestão da Indexação', 'tainacan-index-manager' ) . '</a>';
 		array_unshift( $links, $settings );
 		return $links;
 	}

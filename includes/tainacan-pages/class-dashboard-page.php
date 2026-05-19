@@ -46,11 +46,11 @@ class TIM_Dashboard_Page extends \Tainacan\Pages {
 		$icon_svg = method_exists( $this, 'get_svg_icon' ) ? $this->get_svg_icon( 'chart' ) : '';
 
 		$label = '<span class="icon">' . $icon_svg . '</span>'
-			. '<span class="menu-text">' . esc_html__( 'Saúde da Busca', 'tainacan-index-manager' ) . '</span>';
+			. '<span class="menu-text">' . esc_html__( 'Gestão da Indexação', 'tainacan-index-manager' ) . '</span>';
 
 		$page_suffix = add_submenu_page(
 			$this->tainacan_root_menu_slug,
-			__( 'Saúde da Busca', 'tainacan-index-manager' ),
+			__( 'Gestão da Indexação', 'tainacan-index-manager' ),
 			$label,
 			'manage_options',
 			$this->get_page_slug(),
@@ -98,7 +98,7 @@ class TIM_Dashboard_Page extends \Tainacan\Pages {
 	public function render_page_content() {
 		echo '<div class="wrap tainacan-page-container-content tainacan-idxmgr-wrap">';
 		echo '<div class="tainacan-fixed-subheader"><h1 class="tainacan-page-title">'
-			. esc_html__( 'Saúde da Busca', 'tainacan-index-manager' )
+			. esc_html__( 'Gestão da Indexação', 'tainacan-index-manager' )
 			. '</h1></div>';
 		echo '<div id="tainacan-idxmgr-app" data-view="dashboard"></div>';
 		echo '</div>';
