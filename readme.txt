@@ -4,7 +4,7 @@ Tags: tainacan, elasticsearch, opensearch, elasticpress, search, indexing
 Requires at least: 6.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.1.1
+Stable tag: 1.1.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -49,6 +49,22 @@ Não. O plugin pode operar com o indexador próprio. Se o ElasticPress estiver a
 A busca degrada automaticamente para SQL, um alerta é levantado e o evento é registrado nos logs.
 
 == Changelog ==
+
+= 1.1.2 =
+* Corrige "alerta zombie": `es_not_configured` (ou similares) deixava de ser limpo após o usuário configurar o ES.
+  Causa: o painel disparava `/health?refresh=1` e `/alerts` em paralelo via `Promise.all`, e `/alerts` retornava
+  antes de `evaluate_alerts` rodar. Solução: o painel agora sequencia `/health` antes do resto, e o endpoint
+  `/alerts` força `Health_Service::reevaluate_alerts()` antes de serializar a resposta.
+* Corrige "Pico da fila = 0" quando havia 29 mil itens enfileirados: o pico só era atualizado em `record_run()`
+  (após processar um lote). Agora `Indexer::enqueue/enqueue_all/enqueue_collection` chamam
+  `Indexer_Metrics::observe_queue_size()`. O card também mostra `max(atual, pico_registrado)`, eliminando o
+  caso "0 com fila enorme".
+* Polling do painel passa a atualizar `/health`, `/alerts`, `/metrics` e `/index/state` a cada 7s (antes só
+  `/metrics`). O custo no servidor é absorvido pelo cache transient de 60s do snapshot de saúde.
+* Painel exibe aviso quando há fila pendente e nenhum lote rodou ainda, sugerindo "Processar lote" ou ativar
+  o processamento automático.
+* Coluna "Indexado" da tabela de coleções agora mostra "erro" (com tooltip do motivo) quando o `_count` falha,
+  em vez de "—" silencioso. Falhas também viram entradas no log (canal `health`, nível warning).
 
 = 1.1.1 =
 * HOTFIX CRÍTICO: corrige fatal error "Access level to TIM_*_Page::init() must be public" introduzido em 1.1.0.

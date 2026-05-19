@@ -391,6 +391,10 @@ final class REST_Controller {
 	}
 
 	public function rest_get_alerts(): \WP_REST_Response {
+		// Force a re-evaluation against the current snapshot (cached or fresh)
+		// so /alerts can never be served stale relative to /health on the same
+		// request — the classic "zombie alert" the user reported.
+		$this->health->reevaluate_alerts();
 		return rest_ensure_response( array(
 			'alerts' => array_values( $this->alerts->all() ),
 			'count'  => $this->alerts->count(),

@@ -182,6 +182,15 @@ final class Health_Service {
 	}
 
 	/**
+	 * Public wrapper to re-evaluate alerts against the current snapshot,
+	 * useful from REST callbacks that need to dodge the cache-miss race
+	 * with /health?refresh=1 (alerts would otherwise be served stale).
+	 */
+	public function reevaluate_alerts(): void {
+		$this->evaluate_alerts( $this->get_snapshot() );
+	}
+
+	/**
 	 * Convert WordPress error/snapshot fields into a list of human alerts.
 	 *
 	 * @param array $snapshot Built snapshot.

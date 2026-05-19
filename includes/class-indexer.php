@@ -113,6 +113,7 @@ final class Indexer {
 		$added   = count( $queue ) - $before;
 
 		update_option( self::QUEUE_OPTION, $queue, false );
+		$this->metrics->observe_queue_size( count( $queue ) );
 		return $added;
 	}
 
@@ -120,25 +121,29 @@ final class Indexer {
 	 * Replace the entire queue with all Tainacan items (full reindex bootstrap).
 	 */
 	public function enqueue_all(): int {
-		$ids = $this->fetch_all_tainacan_item_ids();
-		update_option( self::QUEUE_OPTION, array_values( array_unique( $ids ) ), false );
+		$ids   = $this->fetch_all_tainacan_item_ids();
+		$queue = array_values( array_unique( $ids ) );
+		update_option( self::QUEUE_OPTION, $queue, false );
 		$this->set_state( self::STATE_RUNNING );
-		$this->logger->info( Logger::CHAN_INDEXER, 'Fila de reindexação total preenchida.', array( 'count' => count( $ids ) ) );
-		return count( $ids );
+		$this->metrics->observe_queue_size( count( $queue ) );
+		$this->logger->info( Logger::CHAN_INDEXER, 'Fila de reindexação total preenchida.', array( 'count' => count( $queue ) ) );
+		return count( $queue );
 	}
 
 	/**
 	 * Replace the queue with all items from a specific collection.
 	 */
 	public function enqueue_collection( int $collection_id ): int {
-		$ids = $this->fetch_collection_item_ids( $collection_id );
-		update_option( self::QUEUE_OPTION, array_values( array_unique( $ids ) ), false );
+		$ids   = $this->fetch_collection_item_ids( $collection_id );
+		$queue = array_values( array_unique( $ids ) );
+		update_option( self::QUEUE_OPTION, $queue, false );
 		$this->set_state( self::STATE_RUNNING );
+		$this->metrics->observe_queue_size( count( $queue ) );
 		$this->logger->info( Logger::CHAN_INDEXER, 'Fila de reindexação por coleção preenchida.', array(
 			'collection_id' => $collection_id,
-			'count'         => count( $ids ),
+			'count'         => count( $queue ),
 		) );
-		return count( $ids );
+		return count( $queue );
 	}
 
 	/**

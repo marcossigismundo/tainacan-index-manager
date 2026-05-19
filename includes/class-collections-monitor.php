@@ -97,6 +97,10 @@ final class Collections_Monitor {
 					) );
 					if ( is_wp_error( $res ) ) {
 						$indexed_error = $res->get_error_message();
+						$this->logger->warning( Logger::CHAN_HEALTH, 'Falha ao contar itens indexados da coleção.', array(
+							'collection_id' => $collection_id,
+							'error'         => $indexed_error,
+						) );
 					} else {
 						$indexed_count = (int) $res;
 					}

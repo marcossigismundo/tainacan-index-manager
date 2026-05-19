@@ -129,6 +129,24 @@ final class Indexer_Metrics {
 	}
 
 	/**
+	 * Observe the current queue size and bump peak if exceeded.
+	 *
+	 * Called whenever the queue grows (enqueue, enqueue_all, enqueue_collection)
+	 * so the dashboard "Peak queue" indicator reflects the truth even before
+	 * any batch has run.
+	 */
+	public function observe_queue_size( int $size ): void {
+		if ( $size <= 0 ) {
+			return;
+		}
+		$doc = $this->load();
+		if ( $size > (int) $doc['peak_queue_size'] ) {
+			$doc['peak_queue_size'] = $size;
+			update_option( self::OPTION_KEY, $doc, false );
+		}
+	}
+
+	/**
 	 * Derived KPIs + windowed views suitable for the dashboard.
 	 *
 	 * @param int $queue_size  Current queue size from the Indexer.

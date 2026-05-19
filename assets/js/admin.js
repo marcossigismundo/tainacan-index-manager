@@ -222,7 +222,7 @@
 						<div class="tim-card">\
 							<span class="tim-card-label">{{ i18n.eta }}</span>\
 							<span class="tim-card-value">{{ etaLabel }}</span>\
-							<span class="tim-card-sub">{{ i18n.queue_size }}: {{ fmtNumber(metrics.queue && metrics.queue.size) }} · {{ i18n.queue_peak }}: {{ fmtNumber(metrics.queue && metrics.queue.peak_observed) }}</span>\
+							<span class="tim-card-sub">{{ i18n.queue_size }}: {{ fmtNumber(currentQueueSize) }} · {{ i18n.queue_peak }}: {{ fmtNumber(effectivePeak) }}</span>\
 						</div>\
 						<div :class="[\'tim-card\', successCardClass()]">\
 							<span class="tim-card-label">{{ i18n.success_rate }}</span>\
@@ -297,6 +297,7 @@
 					</div>\
 				</div>\
 \
+				<div class="tim-notice is-warning" v-if="autoIndexingHint">{{ autoIndexingHint }}</div>\
 				<div class="tim-notice is-success" v-if="lastActionMsg">{{ lastActionMsg }}</div>\
 \
 				<div class="tim-section">\
@@ -312,7 +313,11 @@
 								<td>{{ row.collection_id }}</td>\
 								<td>{{ row.collection_name }}</td>\
 								<td>{{ fmtNumber(row.tainacan_count) }}</td>\
-								<td>{{ row.indexed_count === null ? \'—\' : fmtNumber(row.indexed_count) }}</td>\
+								<td>\
+									<span v-if="row.indexed_count !== null">{{ fmtNumber(row.indexed_count) }}</span>\
+									<span v-else-if="row.error" :title="row.error" style="color:#e01b24;cursor:help">erro</span>\
+									<span v-else>—</span>\
+								</td>\
 								<td>{{ row.coverage_pct === null ? \'—\' : row.coverage_pct + \'%\' }}</td>\
 								<td>{{ row.divergence_pct === null ? \'—\' : row.divergence_pct + \'%\' }}</td>\
 								<td><button class="tim-btn is-secondary" @click="reindexCollection(row.collection_id)" :disabled="loading">{{ i18n.reindex_collection }}</button></td>\
@@ -400,6 +405,21 @@
 			successRateLabel: function () {
 				var s = this.metrics && this.metrics.window && this.metrics.window.success_rate_pct;
 				return (s === null || typeof s === 'undefined') ? '—' : (s + '%');
+			},
+			currentQueueSize: function () {
+				return (this.metrics && this.metrics.queue && this.metrics.queue.size) || 0;
+			},
+			effectivePeak: function () {
+				// Peak only gets recorded when batches run; show the truth
+				// even before the first batch by max'ing against current.
+				var peak = (this.metrics && this.metrics.queue && this.metrics.queue.peak_observed) || 0;
+				return Math.max(peak, this.currentQueueSize);
+			},
+			autoIndexingHint: function () {
+				if (this.currentQueueSize <= 0) return '';
+				if (this.snapshot && this.snapshot.last_index_run_ts > 0) return '';
+				// Queue has items but no batch has ever run — likely auto-indexing is off.
+				return 'Há ' + fmtNumber(this.currentQueueSize) + ' itens na fila, mas nenhum lote foi processado ainda. Clique em "Processar lote" ou habilite o processamento automático em Configurações de Indexação.';
 			}
 		},
 		mounted: function () {
@@ -455,30 +475,56 @@
 				return Math.round((v / total) * 1000) / 10;
 			},
 			refresh: function (force) {
+				// Sequenced so /alerts and /metrics never read state the
+				// /health refresh hasn't finished writing. Without this,
+				// Promise.all() races and we get zombie alerts.
 				var self = this;
 				this.loading = true;
 				this.errorMsg = '';
 				var qs = force ? '?refresh=1' : '';
-				return Promise.all([
-					api('GET', '/health' + qs),
-					api('GET', '/collections' + qs),
-					api('GET', '/alerts'),
-					api('GET', '/elasticpress'),
-					api('GET', '/logs?per_page=15'),
-					api('GET', '/metrics?window=10')
-				]).then(function (results) {
-					self.snapshot     = results[0] || {};
-					self.collections  = results[1] || { rows: [] };
-					self.alerts       = (results[2] && results[2].alerts) || [];
-					self.elasticpress = results[3] || { active: false };
-					self.logs         = (results[4] && results[4].rows) || [];
-					self.applyMetrics(results[5] || {});
+				return api('GET', '/health' + qs).then(function (snap) {
+					self.snapshot = snap || {};
+					return Promise.all([
+						api('GET', '/collections' + qs),
+						api('GET', '/alerts'),
+						api('GET', '/elasticpress'),
+						api('GET', '/logs?per_page=15'),
+						api('GET', '/metrics?window=10')
+					]);
+				}).then(function (results) {
+					self.collections  = results[0] || { rows: [] };
+					self.alerts       = (results[1] && results[1].alerts) || [];
+					self.elasticpress = results[2] || { active: false };
+					self.logs         = (results[3] && results[3].rows) || [];
+					self.applyMetrics(results[4] || {});
 				}).catch(function (err) {
 					self.errorMsg = err.message || 'Erro ao carregar dados.';
 				}).finally(function () {
 					self.loading = false;
 					self.initialLoading = false;
 				});
+			},
+
+			pollTick: function () {
+				// Lightweight tick: hits cached endpoints so the dashboard
+				// stays current without slamming Elasticsearch. The 60s
+				// health-snapshot transient absorbs the load on the server.
+				var self = this;
+				Promise.all([
+					api('GET', '/health'),
+					api('GET', '/alerts'),
+					api('GET', '/metrics?window=10'),
+					api('GET', '/index/state')
+				]).then(function (results) {
+					self.snapshot = results[0] || self.snapshot;
+					self.alerts   = (results[1] && results[1].alerts) || [];
+					self.applyMetrics(results[2] || {});
+					// /index/state surfaces fresh queue size + auto state.
+					if (results[3] && typeof results[3].queue_size === 'number') {
+						self.metrics.queue = self.metrics.queue || {};
+						self.metrics.queue.size = results[3].queue_size;
+					}
+				}).catch(function () { /* silent: next tick retries */ });
 			},
 			applyMetrics: function (payload) {
 				var s = (payload && payload.summary) || {};
@@ -501,9 +547,7 @@
 			startPolling: function () {
 				if (this.poller) return;
 				var self = this;
-				this.poller = window.setInterval(function () {
-					api('GET', '/metrics?window=10').then(function (res) { self.applyMetrics(res); });
-				}, 7000);
+				this.poller = window.setInterval(function () { self.pollTick(); }, 7000);
 			},
 			stopPolling: function () { if (this.poller) { window.clearInterval(this.poller); this.poller = null; } },
 			testConnection: function () {
