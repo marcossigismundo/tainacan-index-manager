@@ -31,10 +31,10 @@ class TIM_Dashboard_Page extends \Tainacan\Pages {
 	public const SLUG = 'tainacan_idxmgr_dashboard';
 
 	/**
-	 * Tainacan auto-instantiates via Singleton_Instance->get_instance(); the
-	 * inherited init() registers admin_menu/asset hooks.
+	 * Must remain `public` to match \Tainacan\Pages::init() visibility — PHP
+	 * raises a fatal "Access level must be public" if we narrow it to protected.
 	 */
-	protected function init() {
+	public function init() {
 		parent::init();
 	}
 

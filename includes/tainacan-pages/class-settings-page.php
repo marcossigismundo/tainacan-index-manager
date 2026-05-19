@@ -22,7 +22,10 @@ class TIM_Settings_Page extends \Tainacan\Pages {
 
 	public const SLUG = 'tainacan_idxmgr_settings';
 
-	protected function init() {
+	/**
+	 * Must remain `public` to match \Tainacan\Pages::init() visibility.
+	 */
+	public function init() {
 		parent::init();
 	}
 

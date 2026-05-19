@@ -42,41 +42,67 @@ final class Plugin {
 
 	/**
 	 * Boot the plugin. Idempotent.
+	 *
+	 * Defense in depth: catches any Throwable raised during wiring so that
+	 * a bug in this plugin can never take down the whole WordPress admin.
+	 * Catchable errors (Error + Exception in PHP 7+) get surfaced as an
+	 * admin notice; parse-time fatals are not catchable here but `php -l`
+	 * and CI prevent them from shipping.
 	 */
 	public function boot(): void {
 		if ( $this->booted ) {
 			return;
 		}
 
-		load_plugin_textdomain(
-			'tainacan-index-manager',
-			false,
-			dirname( TAINACAN_INDEX_MANAGER_BASENAME ) . '/languages'
-		);
+		try {
+			load_plugin_textdomain(
+				'tainacan-index-manager',
+				false,
+				dirname( TAINACAN_INDEX_MANAGER_BASENAME ) . '/languages'
+			);
 
-		$this->settings      = new Settings();
-		$this->logger        = new Logger();
-		$this->alerts        = new Alerts( $this->logger );
-		$this->health        = new Health_Service( $this->settings, $this->logger, $this->alerts );
-		$this->collections   = new Collections_Monitor( $this->settings, $this->logger );
-		$this->index_manager = new Index_Manager( $this->settings, $this->logger );
-		$this->metrics       = new Indexer_Metrics( $this->settings );
-		$this->indexer       = new Indexer( $this->settings, $this->logger, $this->index_manager, $this->metrics );
-		$this->elasticpress  = new ElasticPress_Integration( $this->settings, $this->logger );
-		$this->search        = new Search_Integration( $this->settings, $this->logger, $this->elasticpress );
-		$this->cron          = new Cron( $this->settings, $this->health, $this->indexer, $this->collections, $this->logger );
-		$this->rest          = new REST_Controller( $this->settings, $this->health, $this->indexer, $this->index_manager, $this->collections, $this->elasticpress, $this->logger, $this->alerts, $this->metrics );
-		$this->admin         = new Admin_Page( $this->settings, $this->health, $this->logger, $this->alerts );
+			$this->settings      = new Settings();
+			$this->logger        = new Logger();
+			$this->alerts        = new Alerts( $this->logger );
+			$this->health        = new Health_Service( $this->settings, $this->logger, $this->alerts );
+			$this->collections   = new Collections_Monitor( $this->settings, $this->logger );
+			$this->index_manager = new Index_Manager( $this->settings, $this->logger );
+			$this->metrics       = new Indexer_Metrics( $this->settings );
+			$this->indexer       = new Indexer( $this->settings, $this->logger, $this->index_manager, $this->metrics );
+			$this->elasticpress  = new ElasticPress_Integration( $this->settings, $this->logger );
+			$this->search        = new Search_Integration( $this->settings, $this->logger, $this->elasticpress );
+			$this->cron          = new Cron( $this->settings, $this->health, $this->indexer, $this->collections, $this->logger );
+			$this->rest          = new REST_Controller( $this->settings, $this->health, $this->indexer, $this->index_manager, $this->collections, $this->elasticpress, $this->logger, $this->alerts, $this->metrics );
+			$this->admin         = new Admin_Page( $this->settings, $this->health, $this->logger, $this->alerts );
 
-		$this->cron->register();
-		$this->rest->register();
-		$this->admin->register();
-		$this->search->register();
-		$this->alerts->register();
+			$this->cron->register();
+			$this->rest->register();
+			$this->admin->register();
+			$this->search->register();
+			$this->alerts->register();
 
-		add_filter( 'plugin_action_links_' . TAINACAN_INDEX_MANAGER_BASENAME, array( $this, 'plugin_action_links' ) );
+			add_filter( 'plugin_action_links_' . TAINACAN_INDEX_MANAGER_BASENAME, array( $this, 'plugin_action_links' ) );
 
-		$this->booted = true;
+			$this->booted = true;
+		} catch ( \Throwable $e ) {
+			$msg = $e->getMessage();
+			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Guarded by WP_DEBUG; surfaces only in dev.
+				error_log( '[Tainacan Index Manager] boot() falhou: ' . $msg );
+			}
+			add_action( 'admin_notices', static function () use ( $msg ) {
+				if ( ! current_user_can( 'manage_options' ) ) {
+					return;
+				}
+				echo '<div class="notice notice-error"><p><strong>Tainacan Index Manager:</strong> '
+					. esc_html( sprintf(
+						/* translators: %s = error message */
+						__( 'Falha ao inicializar (%s). O plugin foi parcialmente desativado para proteger o site.', 'tainacan-index-manager' ),
+						$msg
+					) )
+					. '</p></div>';
+			} );
+		}
 	}
 
 	public function plugin_action_links( array $links ): array {

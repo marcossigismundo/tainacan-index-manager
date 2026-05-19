@@ -42,9 +42,17 @@ final class Admin_Page {
 	public function register(): void {
 		if ( $this->tainacan_pages_available() ) {
 			// Tainacan 1.0.0+ — load native page classes. They self-register via Singleton_Instance.
-			require_once TAINACAN_INDEX_MANAGER_DIR . 'includes/tainacan-pages/class-dashboard-page.php';
-			require_once TAINACAN_INDEX_MANAGER_DIR . 'includes/tainacan-pages/class-settings-page.php';
-			return;
+			try {
+				require_once TAINACAN_INDEX_MANAGER_DIR . 'includes/tainacan-pages/class-dashboard-page.php';
+				require_once TAINACAN_INDEX_MANAGER_DIR . 'includes/tainacan-pages/class-settings-page.php';
+				return;
+			} catch ( \Throwable $e ) {
+				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+					// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Guarded by WP_DEBUG; surfaces only in dev.
+					error_log( '[Tainacan Index Manager] Falha ao carregar Tainacan Pages, caindo em fallback: ' . $e->getMessage() );
+				}
+				// Fall through to the standalone path so the plugin keeps working.
+			}
 		}
 
 		// Fallback path: standalone WP menu + warning notice.
@@ -53,9 +61,36 @@ final class Admin_Page {
 		add_action( 'admin_notices', array( $this, 'render_compat_notice' ) );
 	}
 
+	/**
+	 * Confirms the Tainacan native page system is actually usable in the
+	 * current request, not just declared somewhere in the codebase.
+	 *
+	 * We require:
+	 * - the abstract class \Tainacan\Pages
+	 * - the trait \Tainacan\Traits\Singleton_Instance
+	 * - the Pages::init() method, kept `public` upstream (we override it
+	 *   in subclasses and PHP raises a fatal if visibility ever changes)
+	 *
+	 * Checking via Reflection here means a future upstream rename or
+	 * visibility change degrades us gracefully into the standalone menu
+	 * instead of fataling.
+	 */
 	private function tainacan_pages_available(): bool {
-		return class_exists( '\\Tainacan\\Pages' )
-			&& trait_exists( '\\Tainacan\\Traits\\Singleton_Instance' );
+		if ( ! class_exists( '\\Tainacan\\Pages' ) ) {
+			return false;
+		}
+		if ( ! trait_exists( '\\Tainacan\\Traits\\Singleton_Instance' ) ) {
+			return false;
+		}
+		try {
+			$ref = new \ReflectionMethod( '\\Tainacan\\Pages', 'init' );
+			if ( ! $ref->isPublic() ) {
+				return false;
+			}
+		} catch ( \Throwable $e ) {
+			return false;
+		}
+		return true;
 	}
 
 	/**
