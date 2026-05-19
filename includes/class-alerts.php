@@ -36,6 +36,14 @@ final class Alerts {
 
 	/**
 	 * Raise (or update) an alert by code.
+	 *
+	 * Idempotent: when the alert already exists with the same severity and
+	 * message, we only refresh `last_seen` and skip logging / email. Logs
+	 * and emails are reserved for *transitions* (new alert, severity bump,
+	 * message change) so a steady-state condition stops flooding the log
+	 * even when the dashboard polls /alerts every few seconds.
+	 *
+	 * `count` therefore tracks the number of transitions, not raise calls.
 	 */
 	public function raise( string $code, string $severity, string $message, array $context = array() ): void {
 		$allowed = array( self::SEV_INFO, self::SEV_WARNING, self::SEV_CRITICAL );
@@ -43,18 +51,26 @@ final class Alerts {
 			$severity = self::SEV_INFO;
 		}
 
-		$alerts                  = $this->all();
-		$existing                = $alerts[ $code ] ?? null;
-		$alerts[ $code ]         = array(
+		$alerts   = $this->all();
+		$existing = $alerts[ $code ] ?? null;
+		$changed  = ! $existing
+			|| ( $existing['severity'] ?? '' ) !== $severity
+			|| ( $existing['message'] ?? '' ) !== $message;
+
+		$alerts[ $code ] = array(
 			'code'       => $code,
 			'severity'   => $severity,
 			'message'    => $message,
 			'context'    => Logger::scrub_context( $context ),
 			'first_seen' => $existing['first_seen'] ?? time(),
 			'last_seen'  => time(),
-			'count'      => ( $existing['count'] ?? 0 ) + 1,
+			'count'      => ( $existing['count'] ?? 0 ) + ( $changed ? 1 : 0 ),
 		);
 		update_option( self::OPTION_KEY, $alerts, false );
+
+		if ( ! $changed ) {
+			return;
+		}
 
 		$this->logger->log( $severity, Logger::CHAN_ALERT, $message, array_merge( $context, array( 'alert_code' => $code ) ) );
 

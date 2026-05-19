@@ -4,7 +4,7 @@ Tags: tainacan, elasticsearch, opensearch, elasticpress, search, indexing
 Requires at least: 6.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.1.2
+Stable tag: 1.1.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -49,6 +49,15 @@ Não. O plugin pode operar com o indexador próprio. Se o ElasticPress estiver a
 A busca degrada automaticamente para SQL, um alerta é levantado e o evento é registrado nos logs.
 
 == Changelog ==
+
+= 1.1.3 =
+* Corrige flood de logs do canal `alert`. Desde 1.1.2 o painel passou a chamar `reevaluate_alerts()`
+  em todo polling (a cada ~7s), e `Alerts::raise()` gerava log + tentativa de e-mail a cada chamada,
+  mesmo quando nada havia mudado. Agora `raise()` é idempotente: só registra log e tenta enviar
+  e-mail em *transições* (alerta novo, mudança de severidade ou de mensagem); para condições
+  persistentes apenas atualiza `last_seen`. `count` passa a refletir transições, não chamadas.
+* `Cron::run_health_tick()` agora produz uma única entrada de log por execução (canal `health`)
+  em vez de duas, reduzindo ruído.
 
 = 1.1.2 =
 * Corrige "alerta zombie": `es_not_configured` (ou similares) deixava de ser limpo após o usuário configurar o ES.

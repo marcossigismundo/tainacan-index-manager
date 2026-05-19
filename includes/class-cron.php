@@ -106,12 +106,14 @@ final class Cron {
 	}
 
 	public function run_health_tick(): void {
-		$this->logger->info( Logger::CHAN_CRON, 'Cron: tick de health.' );
 		$snapshot = $this->health->refresh_snapshot();
 		$this->collections->invalidate();
+		// Single combined log entry per tick — health channel carries the
+		// useful columns (cluster status, latency) and a small context blob,
+		// so we don't need a separate cron-channel "tick" line.
 		$this->logger->info(
 			Logger::CHAN_HEALTH,
-			'Snapshot atualizado.',
+			'Cron: snapshot de saúde atualizado.',
 			array(
 				'overall'        => $snapshot['overall_status'] ?? null,
 				'coverage_pct'   => $snapshot['coverage_pct'] ?? null,
