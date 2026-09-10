@@ -114,6 +114,9 @@ final class Index_Manager {
 						'type'       => 'nested',
 						'properties' => array(
 							'slug'  => array( 'type' => 'keyword' ),
+							// Term IDs are what Tainacan's tax_query filters on;
+							// without them facet/filter translation is impossible.
+							'term_ids' => array( 'type' => 'long' ),
 							'terms' => array(
 								'type'   => 'text',
 								'fields' => array(
@@ -126,6 +129,11 @@ final class Index_Manager {
 						'type'       => 'nested',
 						'properties' => array(
 							'slug'  => array( 'type' => 'keyword' ),
+							// Tainacan's meta_query keys are metadatum IDs, not slugs.
+							'metadatum_id' => array( 'type' => 'long' ),
+							// Term/item IDs behind Taxonomy and Relationship metadata,
+							// used for facet aggregations and filter translation.
+							'value_ids'    => array( 'type' => 'long' ),
 							'label' => array( 'type' => 'keyword' ),
 							'value_text' => array(
 								'type'            => 'text',

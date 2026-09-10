@@ -131,9 +131,17 @@ final class Health_Service {
 			if ( is_array( $stats ) ) {
 				$idx_data = $stats['indices'][ $snapshot['index_name'] ] ?? null;
 				if ( is_array( $idx_data ) ) {
-					$snapshot['index_doc_count']  = isset( $idx_data['total']['docs']['count'] ) ? (int) $idx_data['total']['docs']['count'] : null;
 					$snapshot['index_size_bytes'] = isset( $idx_data['total']['store']['size_in_bytes'] ) ? (int) $idx_data['total']['store']['size_in_bytes'] : null;
 				}
+			}
+
+			// `_stats` reports Lucene documents, which includes one extra document per
+			// `nested` object (metadata/taxonomies). With ~50 metadata per item that
+			// inflates the number ~50x and made coverage read as 5000%+. `_count`
+			// reports actual top-level documents, which is what coverage compares to.
+			$doc_count = $this->client->count( $snapshot['index_name'] );
+			if ( ! is_wp_error( $doc_count ) ) {
+				$snapshot['index_doc_count'] = (int) $doc_count;
 			}
 		}
 

@@ -45,6 +45,9 @@ final class Settings {
 			'alert_email_address'       => '',
 			'alert_dashboard_enabled'   => true,
 			'fallback_enabled'          => true,
+			'route_item_lists'          => true,
+			'route_facets'              => true,
+			'facet_max_terms'           => 300,
 			'log_retention_days'        => 30,
 			'last_index_run_ts'         => 0,
 			'last_health_check_ts'      => 0,
@@ -186,7 +189,12 @@ final class Settings {
 			case 'alert_email_enabled':
 			case 'alert_dashboard_enabled':
 			case 'fallback_enabled':
+			case 'route_item_lists':
+			case 'route_facets':
 				return (bool) $v;
+
+			case 'facet_max_terms':
+				return max( 10, min( 5000, (int) $v ) );
 
 			case 'last_index_run_ts':
 			case 'last_health_check_ts':

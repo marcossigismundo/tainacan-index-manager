@@ -104,10 +104,13 @@ class Elasticsearch_Client {
 	 *
 	 * @return array|\WP_Error
 	 */
-	public function delete_document( string $index, string $id ) {
+	public function delete_document( string $index, string $id, bool $tolerate_missing = true ) {
 		$index = $this->sanitize_index_name( $index );
 		$path  = '/' . rawurlencode( $index ) . '/_doc/' . rawurlencode( $id );
-		return $this->request( 'DELETE', $path );
+		// A 404 means the document is not in the index, which is precisely the
+		// state the caller wanted. Treating it as an error is what produced the
+		// recurring "Falha ao apagar documento" noise.
+		return $this->request( 'DELETE', $path, null, $tolerate_missing ? array( 404 ) : array() );
 	}
 
 	/**
@@ -186,7 +189,7 @@ class Elasticsearch_Client {
 	 *
 	 * @return array|\WP_Error
 	 */
-	protected function request( string $method, string $path, $body = null ) {
+	protected function request( string $method, string $path, $body = null, array $tolerate_codes = array() ) {
 		if ( ! $this->is_configured() ) {
 			return new \WP_Error( 'tim_es_not_configured', __( 'Elasticsearch/OpenSearch não está configurado.', 'tainacan-index-manager' ) );
 		}
@@ -277,6 +280,16 @@ class Elasticsearch_Client {
 			);
 			if ( '' !== $err_type ) {
 				$short_message .= ' — ' . $err_type;
+			}
+
+			// Some codes are an expected, benign outcome for the caller (e.g. deleting
+			// a document that is already gone). Those must not be logged as errors —
+			// otherwise routine cleanup floods the log and masks real failures.
+			if ( in_array( $code, $tolerate_codes, true ) ) {
+				return array(
+					'tim_tolerated' => true,
+					'code'          => $code,
+				);
 			}
 
 			$this->logger->error( Logger::CHAN_ELASTIC, $short_message, array(

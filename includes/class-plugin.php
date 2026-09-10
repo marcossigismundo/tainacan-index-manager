@@ -28,6 +28,7 @@ final class Plugin {
 	private ElasticPress_Integration $elasticpress;
 	private Diagnostics $diagnostics;
 	private Search_Integration $search;
+	private Facets_Integration $facets;
 	private Cron $cron;
 	private REST_Controller $rest;
 	private Admin_Page $admin;
@@ -72,6 +73,7 @@ final class Plugin {
 			$this->indexer       = new Indexer( $this->settings, $this->logger, $this->index_manager, $this->metrics );
 			$this->elasticpress  = new ElasticPress_Integration( $this->settings, $this->logger );
 			$this->search        = new Search_Integration( $this->settings, $this->logger, $this->elasticpress );
+			$this->facets        = new Facets_Integration( $this->settings, $this->logger, $this->search );
 			$this->diagnostics   = new Diagnostics( $this->settings, $this->health, $this->indexer, $this->metrics, $this->collections, $this->elasticpress, $this->logger );
 			$this->cron          = new Cron( $this->settings, $this->health, $this->indexer, $this->collections, $this->logger );
 			$this->rest          = new REST_Controller( $this->settings, $this->health, $this->indexer, $this->index_manager, $this->collections, $this->elasticpress, $this->logger, $this->alerts, $this->metrics, $this->diagnostics );
@@ -81,6 +83,7 @@ final class Plugin {
 			$this->rest->register();
 			$this->admin->register();
 			$this->search->register();
+			$this->facets->register();
 			$this->alerts->register();
 
 			add_filter( 'plugin_action_links_' . TAINACAN_INDEX_MANAGER_BASENAME, array( $this, 'plugin_action_links' ) );

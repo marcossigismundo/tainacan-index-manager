@@ -408,11 +408,27 @@ final class Indexer {
 
 		$taxes = get_object_taxonomies( $post->post_type, 'objects' );
 		foreach ( $taxes as $tax_slug => $tax_obj ) {
-			$terms = wp_get_post_terms( $post->ID, $tax_slug, array( 'fields' => 'names' ) );
+			// Full term objects (not just names): Tainacan's tax_query filters by
+			// term_id, so the index needs the IDs to be able to answer those queries.
+			$terms = wp_get_post_terms( $post->ID, $tax_slug );
 			if ( ! is_wp_error( $terms ) && ! empty( $terms ) ) {
+				$names = array();
+				$ids   = array();
+				foreach ( $terms as $term ) {
+					if ( ! is_object( $term ) ) {
+						continue;
+					}
+					if ( isset( $term->name ) ) {
+						$names[] = (string) $term->name;
+					}
+					if ( isset( $term->term_id ) ) {
+						$ids[] = (int) $term->term_id;
+					}
+				}
 				$doc['taxonomies'][] = array(
-					'slug'  => $tax_slug,
-					'terms' => array_values( array_map( 'strval', $terms ) ),
+					'slug'     => $tax_slug,
+					'terms'    => $names,
+					'term_ids' => $ids,
 				);
 			}
 		}
@@ -443,26 +459,28 @@ final class Indexer {
 								continue;
 							}
 							$value = method_exists( $im, 'get_value' ) ? $im->get_value() : null;
+							$mtype = method_exists( $metadatum, 'get_metadata_type' ) ? (string) $metadatum->get_metadata_type() : '';
 							$entry = array(
 								'slug'          => method_exists( $metadatum, 'get_slug' ) ? (string) $metadatum->get_slug() : '',
+								'metadatum_id'  => method_exists( $metadatum, 'get_id' ) ? (int) $metadatum->get_id() : 0,
 								'label'         => method_exists( $metadatum, 'get_name' ) ? (string) $metadatum->get_name() : '',
 								'value_text'    => '',
-								'value_keyword' => '',
+								'value_keyword' => array(),
 							);
 
-							if ( is_array( $value ) ) {
-								$flat = array();
-								foreach ( $value as $v ) {
-									$flat[] = is_scalar( $v ) ? (string) $v : wp_json_encode( $v );
-								}
-								$entry['value_text']    = implode( ' | ', $flat );
-								$entry['value_keyword'] = $flat[0] ?? '';
-							} elseif ( is_scalar( $value ) ) {
-								$entry['value_text']    = (string) $value;
-								$entry['value_keyword'] = (string) $value;
-								if ( is_numeric( $value ) ) {
-									$entry['value_number'] = (float) $value;
-								}
+							// Every value is kept as its own keyword entry. Collapsing a
+							// multivalued metadatum into `$flat[0]` (the previous behaviour)
+							// made facets and exact filters silently lose all values but
+							// the first.
+							$parsed = $this->flatten_metadata_value( $value, $mtype );
+
+							$entry['value_text']    = implode( ' | ', $parsed['texts'] );
+							$entry['value_keyword'] = $parsed['texts'];
+							if ( ! empty( $parsed['ids'] ) ) {
+								$entry['value_ids'] = $parsed['ids'];
+							}
+							if ( 1 === count( $parsed['texts'] ) && is_numeric( $parsed['texts'][0] ) ) {
+								$entry['value_number'] = (float) $parsed['texts'][0];
 							}
 
 							$doc['metadata'][] = $entry;
@@ -481,6 +499,210 @@ final class Indexer {
 		$doc['identifier'] = (string) ( get_post_meta( $post->ID, 'identifier', true ) ?: $post->post_name );
 
 		return $doc;
+	}
+
+	/**
+	 * Remove documents whose underlying WordPress item no longer exists (or is no
+	 * longer in an indexable status).
+	 *
+	 * Deletions that happen while ES is unreachable — or before the delete hook was
+	 * fixed — leave the document behind forever. Those orphans are not just dead
+	 * weight: they are returned by searches, so users see items that were deleted.
+	 * This walks the whole index with `search_after` and bulk-deletes what WordPress
+	 * no longer has.
+	 *
+	 * @param int $batch      Documents to examine per round trip.
+	 * @param int $max_batches Safety stop so a single run cannot loop forever.
+	 * @return array{ok: bool, scanned: int, deleted: int, message: string}
+	 */
+	public function purge_orphans( int $batch = 1000, int $max_batches = 200 ): array {
+		global $wpdb;
+
+		$index   = (string) $this->settings->get( 'index_name' );
+		$scanned = 0;
+		$deleted = 0;
+
+		if ( ! $this->client->is_configured() ) {
+			return array(
+				'ok'      => false,
+				'scanned' => 0,
+				'deleted' => 0,
+				'message' => __( 'Elasticsearch não está configurado.', 'tainacan-index-manager' ),
+			);
+		}
+
+		$batch      = max( 100, min( 5000, $batch ) );
+		$search_after = null;
+
+		for ( $round = 0; $round < $max_batches; $round++ ) {
+			$payload = array(
+				'size'    => $batch,
+				'_source' => false,
+				'sort'    => array( array( 'item_id' => 'asc' ) ),
+			);
+			if ( null !== $search_after ) {
+				$payload['search_after'] = array( $search_after );
+			}
+
+			$res = $this->client->search( $index, $payload );
+			if ( is_wp_error( $res ) ) {
+				return array(
+					'ok'      => false,
+					'scanned' => $scanned,
+					'deleted' => $deleted,
+					'message' => $res->get_error_message(),
+				);
+			}
+
+			$hits = $res['hits']['hits'] ?? array();
+			if ( ! is_array( $hits ) || empty( $hits ) ) {
+				break;
+			}
+
+			$ids = array();
+			foreach ( $hits as $hit ) {
+				if ( isset( $hit['_id'] ) ) {
+					$ids[] = (int) $hit['_id'];
+				}
+				if ( isset( $hit['sort'][0] ) ) {
+					$search_after = $hit['sort'][0];
+				}
+			}
+			$ids = array_values( array_filter( array_unique( $ids ) ) );
+			if ( empty( $ids ) ) {
+				break;
+			}
+			$scanned += count( $ids );
+
+			// One query per batch, by primary key: cheap even for large indexes.
+			$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+			$sql          = $wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- placeholders built from a counted int array.
+				"SELECT ID FROM {$wpdb->posts} WHERE ID IN ($placeholders) AND post_status IN ('publish','private','draft')",
+				$ids
+			);
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- reconciliation task, must bypass caches.
+			$alive = $wpdb->get_col( $sql );
+			$alive = array_flip( array_map( 'intval', (array) $alive ) );
+
+			$lines = array();
+			foreach ( $ids as $id ) {
+				if ( ! isset( $alive[ $id ] ) ) {
+					$lines[] = array( 'delete' => array( '_index' => $index, '_id' => (string) $id ) );
+				}
+			}
+
+			if ( ! empty( $lines ) ) {
+				$bulk = $this->client->bulk( $lines );
+				if ( is_wp_error( $bulk ) ) {
+					return array(
+						'ok'      => false,
+						'scanned' => $scanned,
+						'deleted' => $deleted,
+						'message' => $bulk->get_error_message(),
+					);
+				}
+				$deleted += count( $lines );
+			}
+
+			if ( count( $ids ) < $batch ) {
+				break;
+			}
+		}
+
+		$this->client->refresh( $index );
+
+		$this->logger->info( Logger::CHAN_INDEXER, 'Reconciliação do índice concluída.', array(
+			'scanned' => $scanned,
+			'deleted' => $deleted,
+		) );
+
+		return array(
+			'ok'      => true,
+			'scanned' => $scanned,
+			'deleted' => $deleted,
+			'message' => sprintf(
+				/* translators: %1$d documents examined, %2$d documents removed */
+				__( '%1$d documentos verificados, %2$d órfãos removidos.', 'tainacan-index-manager' ),
+				$scanned,
+				$deleted
+			),
+		);
+	}
+
+	/**
+	 * Normalize any metadatum value into display texts plus the entity IDs behind it.
+	 *
+	 * Tainacan returns wildly different shapes depending on the metadatum type:
+	 * scalars for text/numeric, `WP_Term` objects (or bare term IDs) for Taxonomy,
+	 * item IDs or `Entities\Item` objects for Relationship. Facet aggregations and
+	 * filter translation need the IDs, so they are extracted here rather than being
+	 * flattened away into strings.
+	 *
+	 * @param mixed  $value Raw value from Item_Metadata::get_value().
+	 * @param string $mtype Fully qualified Tainacan metadata type, when known.
+	 * @return array{texts: string[], ids: int[]}
+	 */
+	private function flatten_metadata_value( $value, string $mtype = '' ): array {
+		$texts = array();
+		$ids   = array();
+
+		$is_entity_backed = ( false !== strpos( $mtype, 'Taxonomy' ) || false !== strpos( $mtype, 'Relationship' ) );
+
+		$items = is_array( $value ) ? $value : ( null === $value ? array() : array( $value ) );
+
+		foreach ( $items as $v ) {
+			if ( is_object( $v ) ) {
+				// WP_Term.
+				if ( isset( $v->term_id ) ) {
+					$ids[] = (int) $v->term_id;
+					if ( isset( $v->name ) && '' !== (string) $v->name ) {
+						$texts[] = (string) $v->name;
+					}
+					continue;
+				}
+				// Tainacan entity (Term, Item, ...).
+				if ( method_exists( $v, 'get_id' ) ) {
+					$ids[] = (int) $v->get_id();
+					if ( method_exists( $v, 'get_name' ) ) {
+						$texts[] = (string) $v->get_name();
+					} elseif ( method_exists( $v, 'get_title' ) ) {
+						$texts[] = (string) $v->get_title();
+					}
+					continue;
+				}
+				$encoded = wp_json_encode( $v );
+				if ( is_string( $encoded ) ) {
+					$texts[] = $encoded;
+				}
+				continue;
+			}
+
+			if ( is_scalar( $v ) ) {
+				$sv = trim( (string) $v );
+				if ( '' === $sv ) {
+					continue;
+				}
+				$texts[] = $sv;
+				// For Taxonomy/Relationship metadata a bare numeric value *is* the entity ID.
+				if ( $is_entity_backed && ctype_digit( $sv ) ) {
+					$ids[] = (int) $sv;
+				}
+				continue;
+			}
+
+			if ( is_array( $v ) ) {
+				$encoded = wp_json_encode( $v );
+				if ( is_string( $encoded ) ) {
+					$texts[] = $encoded;
+				}
+			}
+		}
+
+		return array(
+			'texts' => array_values( array_unique( $texts ) ),
+			'ids'   => array_values( array_unique( $ids ) ),
+		);
 	}
 
 	/**

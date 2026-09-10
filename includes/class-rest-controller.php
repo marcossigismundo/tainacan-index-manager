@@ -147,6 +147,12 @@ final class REST_Controller {
 			'permission_callback' => $auth,
 		) );
 
+		register_rest_route( self::NAMESPACE, '/index/purge-orphans', array(
+			'methods'             => \WP_REST_Server::CREATABLE,
+			'callback'            => array( $this, 'rest_purge_orphans' ),
+			'permission_callback' => $auth,
+		) );
+
 		register_rest_route( self::NAMESPACE, '/index/process-batch', array(
 			'methods'             => \WP_REST_Server::CREATABLE,
 			'callback'            => array( $this, 'rest_process_batch' ),
@@ -350,6 +356,17 @@ final class REST_Controller {
 	public function rest_enqueue_pending(): \WP_REST_Response {
 		$count = $this->indexer->enqueue_missing();
 		return rest_ensure_response( array( 'ok' => true, 'enqueued' => $count ) );
+	}
+
+	/**
+	 * Remove index documents whose WordPress item no longer exists.
+	 *
+	 * @param \WP_REST_Request $request Request.
+	 */
+	public function rest_purge_orphans( $request ): \WP_REST_Response {
+		$batch = (int) ( $request->get_param( 'batch' ) ?: 1000 );
+		$res   = $this->indexer->purge_orphans( $batch );
+		return rest_ensure_response( $res );
 	}
 
 	public function rest_process_batch(): \WP_REST_Response {
