@@ -192,6 +192,37 @@ final class Search_Integration {
 	}
 
 	/**
+	 * A query pede um post específico (por slug, por ID ou por lista de slugs)?
+	 *
+	 * Vale tanto para a query principal de um permalink quanto para queries
+	 * secundárias montadas à mão, que não têm as flags is_singular definidas.
+	 */
+	private function is_single_post_lookup( \WP_Query $query ): bool {
+		if ( $query->is_singular() || $query->is_attachment() ) {
+			return true;
+		}
+
+		if ( '' !== trim( (string) $query->get( 'name' ) ) ) {
+			return true;
+		}
+
+		if ( '' !== trim( (string) $query->get( 'pagename' ) ) ) {
+			return true;
+		}
+
+		if ( (int) $query->get( 'p' ) > 0 || (int) $query->get( 'page_id' ) > 0 ) {
+			return true;
+		}
+
+		$name_in = $query->get( 'post_name__in' );
+		if ( ! empty( $name_in ) ) {
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
 	 * Gate: should this particular query be answered from the index?
 	 */
 	private function should_handle( \WP_Query $query ): bool {
@@ -209,6 +240,15 @@ final class Search_Integration {
 
 		// `id=>parent` expects objects with a post_parent column; not served from ES.
 		if ( 'id=>parent' === $query->get( 'fields' ) ) {
+			return false;
+		}
+
+		// Um permalink de item resolve por post_name (ou por ID). O índice responde
+		// por relevância e ordenação — ele não conhece esses filtros, então
+		// respondia a lista inteira da coleção e o WP ficava com o primeiro
+		// resultado. Na prática qualquer slug abaixo de /{colecao}/ devolvia sempre
+		// o mesmo item, e o permalink correto do item nunca era honrado.
+		if ( $this->is_single_post_lookup( $query ) ) {
 			return false;
 		}
 
