@@ -6,7 +6,7 @@ Plugin WordPress integrado ao [Tainacan](https://tainacan.org/) que oferece:
 - Monitoramento periódico (WP-Cron) de **Elasticsearch** e **OpenSearch**.
 - Integração somente-leitura com **ElasticPress** quando ele está ativo.
 - **Indexador próprio** com mappings/analyzers otimizados para português brasileiro, processamento em lote e controle pausar/retomar/cancelar.
-- Reescrita opcional da busca para usar o índice, com **fallback automático para SQL** quando o ES falha.
+- Roteamento da **listagem de itens e das facetas** do Tainacan para o índice, com **fallback automático para SQL** quando o ES falha.
 - Sistema de **alertas** (painel + e-mail) e **logs** com tabela própria e retenção configurável.
 - **REST API** protegida por nonce + cookie auth para todas as ações administrativas.
 
@@ -46,6 +46,9 @@ Todas as configurações ficam em uma única opção (`tainacan_index_manager_se
 | `max_retries` | 3 | Por item antes de descartar |
 | `alert_email_enabled` / `alert_email_address` | false / — | E-mail throttled (1 por código a cada hora) |
 | `fallback_enabled` | true | Degrada para SQL quando ES falha |
+| `route_item_lists` | true | Roteia listagem/navegação de coleção pelo índice |
+| `route_facets` | true | Roteia as facetas pelo índice |
+| `facet_max_terms` | 300 | Teto de buckets por faceta; acima disso, cai para SQL |
 | `log_retention_days` | 30 | Cleanup diário |
 
 Credenciais nunca são expostas pela REST (`__set__` indica "valor armazenado"). Logs aplicam scrub de chaves que contenham `password`, `secret`, `token`, `authorization`, `api_key`.
@@ -82,7 +85,9 @@ includes/
 ├── class-health-service.php         Snapshot (cluster + índice + cobertura) com transient 60s
 ├── class-collections-monitor.php    Cobertura por coleção (transient 300s)
 ├── class-elasticpress-integration.php  Detecção e leitura do estado do EP
-├── class-search-integration.php     pre_get_posts → ES, com fallback SQL
+├── class-es-query-builder.php       WP_Query args → DSL do ES (tudo-ou-nada)
+├── class-search-integration.php     posts_pre_query → ES, com fallback SQL
+├── class-facets-integration.php     Facetas via agregação, com fallback SQL
 ├── class-alerts.php                 Painel (admin_notices) + e-mail throttled
 ├── class-cron.php                   Schedules + 3 ticks (health, index, cleanup)
 ├── class-rest-controller.php        Namespace tainacan-index-manager/v1
@@ -111,17 +116,78 @@ A fila do indexador é uma lista de IDs em **uma única opção** (`tainacan_idx
 4. Remove processados, recontabiliza falhas em `tainacan_idxmgr_failures`, recoloca na fila itens com falhas < `max_retries`.
 5. Marca `last_index_run_ts`.
 
-### Roteamento da busca
+### Roteamento da listagem de itens
 
-`Search_Integration` engancha em `pre_get_posts` (front + AJAX):
+`Search_Integration` engancha em `posts_pre_query`, que curto-circuita a `WP_Query`
+**antes** de qualquer SQL ser executado. O gargalo de uma coleção grande não é o
+casamento textual, e sim os JOINs em `postmeta`/termos que sustentam a navegação e
+os filtros de faceta — por isso o gancho não se limita mais a `is_search()`.
 
 - Stand-down completo quando `engine` ∈ {`elasticpress`} ou (`auto` e EP ativo).
-- Quando ativo, executa `multi_match` (title^3, description^2, content, metadata.value_text, taxonomies.terms), filtra por `post_type`, reescreve `post__in` na ordem dos hits.
-- Em qualquer falha do ES: limpa `s`, deixa o SQL natural rodar, marca `tainacan_idxmgr_fallback_active` (transient 1h) e dispara alerta.
+- Atende navegação de coleção, filtros de faceta e busca textual.
+- Filtra `post_status` (padrão `publish`). Sem isso, documentos defasados no índice
+  — itens já excluídos, ainda marcados como `draft` — podiam aparecer publicamente.
+- Publica `found_posts`/`max_num_pages` a partir do total do ES, então a paginação
+  fica correta. A implementação anterior usava `post__in` com teto de 200 hits, o
+  que quebrava a paginação a partir da primeira página.
+- Em qualquer falha do ES: devolve `null`, o SQL roda intacto, marca
+  `tainacan_idxmgr_fallback_active` (transient 1h) e dispara alerta.
+
+#### Tradução das consultas (`ES_Query_Builder`)
+
+Converte `post_type`, `post_status`, `s`, `meta_query`, `tax_query`, `author`,
+`post__in`/`post__not_in` e a ordenação para DSL do Elasticsearch.
+
+A regra é **fidelidade acima de cobertura**: o conjunto devolvido tem de ser
+exatamente o mesmo que o SQL devolveria. Operador de comparação desconhecido,
+ordenação por dado que o índice não guarda (`rand`, `meta_value`), status fora do
+índice, paginação além de `max_result_window`, `posts_per_page = -1` — tudo isso
+faz o builder devolver `null` e o SQL assume. Um resultado rápido e errado é pior
+que um lento e correto.
+
+### Roteamento das facetas
+
+`Facets_Integration` responde ao filtro `tainacan-fetch-all-metadatum-values` com
+**uma única** agregação `nested` + `reverse_nested` (para contar itens, não linhas
+de metadado).
+
+Sem isso, o Tainacan monta cada faceta com um `SELECT DISTINCT meta_value` sobre
+toda a `postmeta` e, **para cada valor encontrado**, dispara um `Items::fetch()`
+completo só para ler `found_posts` — uma consulta com JOIN pesado por opção de
+faceta, a cada carregamento de página.
+
+Escopo: metadados cujo valor é gravado literalmente (Text, Textarea, Numeric, Date,
+Selectbox e os core de título/descrição). Taxonomy, Relationship, User e Control
+resolvem rótulos em outras tabelas e carregam semântica de hierarquia — esses
+continuam com o Tainacan.
+
+Guardas que devolvem o controle ao SQL: `hideempty=0` (o índice só conhece valores
+presentes em itens), uso de `include`, janela maior que `facet_max_terms`, e
+qualquer chave em `items_filter` que o builder não modele — esta última é essencial,
+porque ignorar um filtro silenciosamente inflaria as contagens.
 
 ### Mappings PT-BR
 
 Analyzer `tnc_pt_br` combina `standard` + `lowercase` + `asciifolding (preserve_original)` + stopwords `_brazilian_` + stemmer `brazilian`. Aplicado em `title`, `description`, `content`, `metadata.value_text`.
+
+### Campos que sustentam filtros e facetas
+
+O Tainacan endereça metadados por **ID**, não por slug, e filtra taxonomia por
+`term_id`. O documento carrega esses identificadores:
+
+| Campo | Para quê |
+|---|---|
+| `metadata.metadatum_id` | Chave usada no `meta_query` do Tainacan |
+| `metadata.value_keyword` | **Todos** os valores (array), para filtro exato e agregação |
+| `metadata.value_ids` | Entidades por trás de Taxonomy/Relationship |
+| `taxonomies.term_ids` | Alvo do `tax_query` |
+
+> `value_keyword` guardava apenas o primeiro valor (`$flat[0]`) até a 1.2.0, então
+> metadados multivalorados perdiam silenciosamente todos os demais em filtros e
+> facetas. Valores vazios deixaram de ser indexados — um item sem valor para um
+> metadatum não deve constar como tendo valor `""`.
+
+**Mudar esses campos exige reindexação completa.**
 
 ### REST endpoints
 
@@ -137,6 +203,7 @@ POST   /index/create | /index/delete | /index/recreate
 POST   /index/reindex-all
 POST   /index/reindex-collection      (args.collection_id)
 POST   /index/enqueue-pending
+POST   /index/purge-orphans                (args.batch; remove docs de itens inexistentes)
 POST   /index/process-batch
 GET    /index/state
 POST   /index/pause | /index/resume | /index/cancel
@@ -234,13 +301,18 @@ A `Indexer_Metrics` registra cada batch e expõe:
 ## Limitações conhecidas
 
 - A integração com ElasticPress hoje é **observação + trigger**; o plugin não estende facets/aggregations do EP.
-- O roteamento de busca não cobre todos os parâmetros avançados do Tainacan (facets, ranges); para essas cargas, prefira o ElasticPress.
+- Facetas de metadados **Taxonomy, Relationship, User e Control** continuam em SQL: resolvem rótulos em outras tabelas e, no caso de taxonomia, dependem de hierarquia (`parent`, `total_children`, `hierarchy_path`) que o índice não modela.
+- Ordenação por metadado (`meta_value`, `meta_value_num`) e `orderby=rand` caem para SQL.
+- Paginação além de `index.max_result_window` (10.000 por padrão) cai para SQL.
+- Consultas sem paginação (`posts_per_page = -1` / `nopaging`), típicas de exportação, caem para SQL de propósito.
 - A descoberta de post types de coleções é cacheada por request; se uma coleção for criada no meio de uma request, talvez não apareça imediatamente.
+- Documentos órfãos (itens excluídos enquanto o ES estava fora do ar) só somem ao rodar `POST /index/purge-orphans`.
 - O acionamento de `elasticpress sync` exige WP-CLI; sem WP-CLI, o admin precisa rodar sync pela própria UI do EP.
 
 ## Melhorias futuras recomendadas
 
-- Suporte a aggregations/facets nativas para listagens Tainacan.
+- Estender o roteamento de facetas para metadados Taxonomy (exige indexar a hierarquia de termos).
+- Suporte a ordenação por metadado no índice (campo dedicado por metadatum ordenável).
 - Mapping configurável por coleção (analyzers/boosts por campo).
 - Dashboard com gráficos de séries temporais (response time histórico, falhas por dia).
 - Indexação distribuída via Action Scheduler para clusters maiores.
