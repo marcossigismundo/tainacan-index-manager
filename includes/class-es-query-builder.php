@@ -581,12 +581,18 @@ final class ES_Query_Builder {
 				return array( array( 'date_created' => array( 'order' => $order ) ) );
 			case 'modified':
 				return array( array( 'date_modified' => array( 'order' => $order ) ) );
-			case 'title':
-				return array( array( 'title.raw' => array( 'order' => $order ) ) );
 			case 'id':
 			case 'author':
 				$field = 'id' === $orderby ? 'item_id' : 'author_id';
 				return array( array( $field => array( 'order' => $order ) ) );
+			case 'title':
+				// `title.raw` sorts by raw UTF-8 byte order. MySQL orders that column
+				// under utf8mb4_unicode_520_ci (case/accent-insensitive), which the
+				// site's ES cluster has no ICU plugin to reproduce — confirmed to
+				// diverge on real data (digits/symbols/case sort differently). Until
+				// a collation-aware sort key is indexed, defer to SQL rather than
+				// return a differently-ordered — and therefore differently-paginated
+				// — result set.
 			default:
 				// `rand`, `meta_value`, `meta_value_num`, `menu_order`, ... : let SQL do it.
 				return null;
