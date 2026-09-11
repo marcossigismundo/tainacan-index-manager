@@ -233,16 +233,15 @@ final class Search_Integration {
 	 * Engine setting gate, shared by search and facet routing.
 	 */
 	public function engine_allows_routing(): bool {
-		$engine = (string) $this->settings->get( 'engine', 'auto' );
+		if ( Settings::ENGINE_SQL === $this->settings->engine() ) {
+			return false;
+		}
 
-		if ( 'elasticpress' === $engine ) {
-			return false;
-		}
-		if ( 'auto' === $engine && $this->elasticpress->is_active() ) {
-			return false;
-		}
-		if ( 'disabled' === $engine ) {
-			$this->mark_fallback( 'engine_disabled' );
+		// Safety, not a preference: ElasticPress rewrites the same queries, and two
+		// plugins short-circuiting one WP_Query produce whichever result happens to
+		// run first. Deliberately silent — this is evaluated on every query, so
+		// logging it would flood the log. The health snapshot surfaces the state.
+		if ( $this->elasticpress->is_active() ) {
 			return false;
 		}
 

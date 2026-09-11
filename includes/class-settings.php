@@ -23,12 +23,58 @@ final class Settings {
 		$this->cache = self::all();
 	}
 
+	/** Queries are answered from the Elasticsearch index this plugin maintains. */
+	public const ENGINE_ELASTICSEARCH = 'elasticsearch';
+
+	/** No routing: WordPress answers everything from the database. */
+	public const ENGINE_SQL = 'sql';
+
+	/**
+	 * Reduce any stored engine value to one of the two supported modes.
+	 *
+	 * Earlier versions offered `auto`, `own_indexer` and `elasticpress`, which
+	 * described *who builds the index* rather than *which engine answers the
+	 * query* — a distinction that reliably confused people, not least because
+	 * picking `elasticpress` on a site without the ElasticPress plugin active
+	 * silently meant "nobody handles search" and everything fell back to SQL.
+	 *
+	 * Legacy values are mapped here rather than in the sanitizer alone, so a
+	 * stored value keeps working without waiting for the option to be rewritten.
+	 *
+	 * @param mixed $value Raw stored value.
+	 */
+	public static function normalize_engine( $value ): string {
+		$value = is_string( $value ) ? strtolower( trim( $value ) ) : '';
+
+		switch ( $value ) {
+			case self::ENGINE_SQL:
+			case 'disabled':
+				return self::ENGINE_SQL;
+
+			case self::ENGINE_ELASTICSEARCH:
+			case 'own_indexer':
+			case 'auto':
+			// `elasticpress` meant "delegate to that plugin". With the option gone,
+			// the intent it expressed — search served by Elasticsearch — maps here.
+			case 'elasticpress':
+			default:
+				return self::ENGINE_ELASTICSEARCH;
+		}
+	}
+
+	/**
+	 * The engine actually in force, with legacy values already normalized.
+	 */
+	public function engine(): string {
+		return self::normalize_engine( $this->get( 'engine', self::ENGINE_ELASTICSEARCH ) );
+	}
+
 	/**
 	 * Return defaults for every setting key the plugin understands.
 	 */
 	public static function defaults(): array {
 		return array(
-			'engine'                    => 'auto',
+			'engine'                    => self::ENGINE_ELASTICSEARCH,
 			'es_url'                    => '',
 			'es_username'               => '',
 			'es_password'               => '',
@@ -107,7 +153,14 @@ final class Settings {
 	 */
 	public function update( array $partial ): bool {
 		$defaults = self::defaults();
-		$current  = $this->cache;
+
+		// Re-read instead of trusting the in-memory copy. This object may have been
+		// constructed early in the request — or in a long-lived process — and the
+		// whole array is written back below, so a stale copy silently reverts every
+		// key that changed in the meantime. That is not theoretical: a cron tick
+		// stamping `last_index_run_ts` was reverting `engine` and `index_name` to
+		// whatever they were when its Settings instance was built.
+		$current = self::all();
 
 		// Pre-process es_url for inline credentials before normal sanitization.
 		if ( isset( $partial['es_url'] ) && is_string( $partial['es_url'] ) && '' !== trim( $partial['es_url'] ) ) {
@@ -145,9 +198,7 @@ final class Settings {
 	private function sanitize_value( string $key, $v ) {
 		switch ( $key ) {
 			case 'engine':
-				$allowed = array( 'auto', 'elasticpress', 'own_indexer', 'disabled' );
-				$v       = is_string( $v ) ? strtolower( $v ) : 'auto';
-				return in_array( $v, $allowed, true ) ? $v : 'auto';
+				return self::normalize_engine( $v );
 
 			case 'es_url':
 				return esc_url_raw( is_string( $v ) ? trim( $v ) : '' );

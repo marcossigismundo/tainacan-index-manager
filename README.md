@@ -32,7 +32,7 @@ Todas as configurações ficam em uma única opção (`tainacan_index_manager_se
 
 | Campo | Padrão | Observação |
 |---|---|---|
-| `engine` | `auto` | `auto`, `elasticpress`, `own_indexer` ou `disabled` |
+| `engine` | `elasticsearch` | `elasticsearch` (consultas atendidas pelo índice) ou `sql` (sem indexação) |
 | `es_url` | — | URL completa do cluster |
 | `es_username` / `es_password` | — | Basic Auth |
 | `es_api_key` | — | Alternativa ao Basic Auth (header `ApiKey ...`) |
@@ -123,7 +123,17 @@ A fila do indexador é uma lista de IDs em **uma única opção** (`tainacan_idx
 casamento textual, e sim os JOINs em `postmeta`/termos que sustentam a navegação e
 os filtros de faceta — por isso o gancho não se limita mais a `is_search()`.
 
-- Stand-down completo quando `engine` ∈ {`elasticpress`} ou (`auto` e EP ativo).
+- Stand-down completo quando `engine` = `sql`, ou enquanto o plugin ElasticPress
+  estiver ativo — este último por segurança, não por preferência: dois plugins
+  reescrevendo a mesma `WP_Query` entregam o resultado de quem rodar primeiro.
+
+> **Modos.** Até a 1.2.0 o campo oferecia `auto`, `own_indexer` e `elasticpress`,
+> que descreviam *quem monta o índice* e não *quem responde a consulta*. Isso
+> confundia: escolher `elasticpress` num site sem o plugin ElasticPress ativo
+> significava, na prática, "ninguém cuida da busca" — e tudo caía em SQL com o
+> índice parado ao lado. Restam dois modos, e valores antigos são migrados na
+> leitura (`auto`/`own_indexer`/`elasticpress` → `elasticsearch`,
+> `disabled` → `sql`), sem exigir reconfiguração.
 - Atende navegação de coleção, filtros de faceta e busca textual.
 - Filtra `post_status` (padrão `publish`). Sem isso, documentos defasados no índice
   — itens já excluídos, ainda marcados como `draft` — podiam aparecer publicamente.

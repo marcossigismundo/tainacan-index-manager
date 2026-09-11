@@ -84,7 +84,7 @@ final class Health_Service {
 			'fallback_active'           => false,
 			'last_health_check_ts'      => (int) $this->settings->get( 'last_health_check_ts', 0 ),
 			'last_index_run_ts'         => (int) $this->settings->get( 'last_index_run_ts', 0 ),
-			'effective_engine'          => 'sql_fallback',
+			'effective_engine'          => 'sql',
 			'overall_status'            => 'unknown',
 			'overall_message'           => '',
 			'tainacan_active'           => $this->is_tainacan_active(),
@@ -151,16 +151,18 @@ final class Health_Service {
 		}
 
 		// Decide effective engine.
-		$choice = (string) $this->settings->get( 'engine', 'auto' );
-		if ( 'elasticpress' === $choice && $snapshot['elasticpress_active'] ) {
-			$snapshot['effective_engine'] = 'elasticpress';
-		} elseif ( 'own_indexer' === $choice ) {
-			$snapshot['effective_engine'] = 'own_indexer';
-		} elseif ( 'disabled' === $choice ) {
-			$snapshot['effective_engine'] = 'sql_fallback';
-			$snapshot['fallback_active'] = true;
-		} elseif ( 'auto' === $choice ) {
-			$snapshot['effective_engine'] = $snapshot['elasticpress_active'] ? 'elasticpress' : 'own_indexer';
+		$choice = $this->settings->engine();
+		if ( Settings::ENGINE_SQL === $choice ) {
+			$snapshot['effective_engine'] = 'sql';
+			$snapshot['fallback_active']  = true;
+		} elseif ( $snapshot['elasticpress_active'] ) {
+			// Routing stands down while ElasticPress is active, so the index is not
+			// answering queries even though it is configured. Name that state rather
+			// than reporting `elasticsearch` and leaving the manager puzzled.
+			$snapshot['effective_engine'] = 'elasticpress_active';
+			$snapshot['fallback_active']  = true;
+		} else {
+			$snapshot['effective_engine'] = 'elasticsearch';
 		}
 
 		// Final classification.

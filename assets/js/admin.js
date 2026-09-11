@@ -94,10 +94,9 @@
 
 	function engineLabel(e) {
 		switch (e) {
-			case 'elasticpress':    return i18n.elasticpress;
-			case 'own_indexer':     return i18n.own_indexer;
-			case 'sql_fallback':    return i18n.sql_fallback;
-			case 'engine_disabled': return i18n.engine_disabled;
+			case 'elasticsearch':       return i18n.engine_elasticsearch;
+			case 'sql':                return i18n.engine_sql;
+			case 'elasticpress_active': return i18n.engine_blocked_by_ep;
 		}
 		return e || '—';
 	}
@@ -737,10 +736,8 @@
 						<div class="tim-field">\
 							<label>Modo</label>\
 							<select v-model="form.engine">\
-								<option value="auto">Auto (preferir ElasticPress, caso contrário indexador próprio)</option>\
-								<option value="elasticpress">ElasticPress</option>\
-								<option value="own_indexer">Indexador próprio</option>\
-								<option value="disabled">Desativado (somente SQL)</option>\
+								<option value="elasticsearch">Elasticsearch (indexado por este plugin)</option>\
+								<option value="sql">SQL (sem indexação)</option>\
 							</select>\
 						</div>\
 					</div>\
