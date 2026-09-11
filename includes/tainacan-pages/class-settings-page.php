@@ -34,7 +34,7 @@ class TIM_Settings_Page extends \Tainacan\Pages {
 	}
 
 	public function add_admin_menu() {
-		$icon_svg = method_exists( $this, 'get_svg_icon' ) ? $this->get_svg_icon( 'settings' ) : '';
+		$icon_svg = \TainacanIndexManager\Tainacan_Icon::svg( $this, array( 'settings', 'capability', 'edit' ) );
 
 		$label = '<span class="icon">' . $icon_svg . '</span>'
 			. '<span class="menu-text">' . esc_html__( 'Indexação', 'tainacan-index-manager' ) . '</span>';

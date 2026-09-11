@@ -43,7 +43,7 @@ class TIM_Dashboard_Page extends \Tainacan\Pages {
 	}
 
 	public function add_admin_menu() {
-		$icon_svg = method_exists( $this, 'get_svg_icon' ) ? $this->get_svg_icon( 'chart' ) : '';
+		$icon_svg = \TainacanIndexManager\Tainacan_Icon::svg( $this, array( 'reports', 'chart', 'activities' ) );
 
 		$label = '<span class="icon">' . $icon_svg . '</span>'
 			. '<span class="menu-text">' . esc_html__( 'Gestão da Indexação', 'tainacan-index-manager' ) . '</span>';
