@@ -564,37 +564,79 @@ final class ES_Query_Builder {
 		if ( empty( $orderby ) ) {
 			$orderby = '' !== trim( (string) $query->get( 's' ) ) ? 'relevance' : 'date';
 		}
-		// Array/complex ordering (orderby => ['meta_value' => 'ASC', ...]) is not translated.
-		if ( ! is_string( $orderby ) ) {
-			return null;
+
+		// WP accepts three shapes, and Tainacan uses the associative one
+		// (`['date' => 'DESC', 'ID' => 'DESC']`) for its item listings. Normalise
+		// all of them to an ordered list of [field, direction] pairs.
+		$pairs = array();
+		if ( is_array( $orderby ) ) {
+			foreach ( $orderby as $key => $direction ) {
+				$pairs[] = array( (string) $key, (string) $direction );
+			}
+		} else {
+			// A space-separated string ("title ID") shares one direction.
+			foreach ( preg_split( '/\s+/', trim( (string) $orderby ) ) as $key ) {
+				if ( '' !== $key ) {
+					$pairs[] = array( $key, $order );
+				}
+			}
 		}
-		$orderby = strtolower( trim( $orderby ) );
-		// Space-separated multi-field ordering: not translated.
-		if ( false !== strpos( $orderby, ' ' ) ) {
+
+		if ( empty( $pairs ) ) {
 			return null;
 		}
 
-		switch ( $orderby ) {
+		$sort = array();
+		foreach ( $pairs as $pair ) {
+			list( $key, $direction ) = $pair;
+
+			$direction = strtoupper( trim( $direction ) );
+			$direction = in_array( $direction, array( 'ASC', 'DESC' ), true ) ? strtolower( $direction ) : $order;
+
+			$field = self::sort_field( strtolower( trim( $key ) ) );
+			if ( null === $field ) {
+				// One untranslatable key makes the whole ordering untrustworthy.
+				return null;
+			}
+
+			$sort[] = '_score' === $field
+				? array( '_score' => array( 'order' => 'desc' ) )
+				: array( $field => array( 'order' => $direction ) );
+		}
+
+		return $sort;
+	}
+
+	/**
+	 * Map a WP `orderby` key to the index field that reproduces its ordering.
+	 *
+	 * @return string|null Null when the index cannot order by it faithfully.
+	 */
+	private static function sort_field( string $key ): ?string {
+		switch ( $key ) {
 			case 'relevance':
-				return array( array( '_score' => array( 'order' => 'desc' ) ) );
+				return '_score';
 			case 'date':
-				return array( array( 'date_created' => array( 'order' => $order ) ) );
+			case 'post_date':
+				return 'date_created';
 			case 'modified':
-				return array( array( 'date_modified' => array( 'order' => $order ) ) );
+			case 'post_modified':
+				return 'date_modified';
 			case 'id':
+			case 'post_id':
+				return 'item_id';
 			case 'author':
-				$field = 'id' === $orderby ? 'item_id' : 'author_id';
-				return array( array( $field => array( 'order' => $order ) ) );
+				return 'author_id';
 			case 'title':
 				// `title.raw` sorts by raw UTF-8 byte order. MySQL orders that column
-				// under utf8mb4_unicode_520_ci (case/accent-insensitive), which the
-				// site's ES cluster has no ICU plugin to reproduce — confirmed to
-				// diverge on real data (digits/symbols/case sort differently). Until
-				// a collation-aware sort key is indexed, defer to SQL rather than
-				// return a differently-ordered — and therefore differently-paginated
-				// — result set.
+				// under utf8mb4_unicode_520_ci (case/accent-insensitive), which this
+				// ES cluster has no ICU plugin to reproduce — confirmed to diverge on
+				// real data. Until a collation-aware sort key is indexed, defer to SQL
+				// rather than return a differently-ordered — and therefore
+				// differently-paginated — result set.
+				return null;
 			default:
-				// `rand`, `meta_value`, `meta_value_num`, `menu_order`, ... : let SQL do it.
+				// `rand`, `meta_value`, `meta_value_num`, `menu_order`, ...
 				return null;
 		}
 	}

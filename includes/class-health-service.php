@@ -263,13 +263,18 @@ final class Health_Service {
 	public function count_tainacan_items(): int {
 		if ( class_exists( '\\Tainacan\\Repositories\\Items' ) ) {
 			try {
-				$repo  = call_user_func( array( '\\Tainacan\\Repositories\\Items', 'get_instance' ) );
-				$query = $repo->fetch( array(
-					'post_status'    => array( 'publish', 'private', 'draft' ),
-					'posts_per_page' => 1,
-					'fields'         => 'ids',
-					'no_found_rows'  => false,
-				) );
+				// Must come from the database. This count is the reference the index
+				// is measured against, so routing it through ES would make coverage
+				// compare the index with itself and always report 100%.
+				$query = Search_Integration::without_routing( static function () {
+					$repo = call_user_func( array( '\\Tainacan\\Repositories\\Items', 'get_instance' ) );
+					return $repo->fetch( array(
+						'post_status'    => array( 'publish', 'private', 'draft' ),
+						'posts_per_page' => 1,
+						'fields'         => 'ids',
+						'no_found_rows'  => false,
+					) );
+				} );
 				if ( is_object( $query ) && property_exists( $query, 'found_posts' ) ) {
 					return (int) $query->found_posts;
 				}

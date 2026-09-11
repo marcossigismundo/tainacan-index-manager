@@ -241,26 +241,31 @@ final class Facets_Integration {
 		}
 
 		try {
-			$repo = call_user_func( array( '\\Tainacan\\Repositories\\Collections', 'get_instance' ) );
+			// These fetches run WP_Query internally. Suspending routing keeps them
+			// from re-entering Search_Integration through posts_pre_query, which
+			// would recurse until PHP's memory limit is exhausted.
+			return Search_Integration::without_routing( static function () use ( $collection_id ) {
+				$repo = call_user_func( array( '\\Tainacan\\Repositories\\Collections', 'get_instance' ) );
 
-			if ( ! empty( $collection_id ) && is_numeric( $collection_id ) ) {
-				$collection = $repo->fetch( (int) $collection_id );
-				if ( is_object( $collection ) && method_exists( $collection, 'get_db_identifier' ) ) {
-					return array( (string) $collection->get_db_identifier() );
+				if ( ! empty( $collection_id ) && is_numeric( $collection_id ) ) {
+					$collection = $repo->fetch( (int) $collection_id );
+					if ( is_object( $collection ) && method_exists( $collection, 'get_db_identifier' ) ) {
+						return array( (string) $collection->get_db_identifier() );
+					}
+					return array();
 				}
-				return array();
-			}
 
-			$types = array();
-			$cols  = $repo->fetch( array( 'posts_per_page' => -1 ), 'OBJECT' );
-			if ( is_array( $cols ) ) {
-				foreach ( $cols as $c ) {
-					if ( is_object( $c ) && method_exists( $c, 'get_db_identifier' ) ) {
-						$types[] = (string) $c->get_db_identifier();
+				$types = array();
+				$cols  = $repo->fetch( array( 'posts_per_page' => -1 ), 'OBJECT' );
+				if ( is_array( $cols ) ) {
+					foreach ( $cols as $c ) {
+						if ( is_object( $c ) && method_exists( $c, 'get_db_identifier' ) ) {
+							$types[] = (string) $c->get_db_identifier();
+						}
 					}
 				}
-			}
-			return array_values( array_filter( array_unique( $types ) ) );
+				return array_values( array_filter( array_unique( $types ) ) );
+			} );
 		} catch ( \Throwable $e ) {
 			return array();
 		}

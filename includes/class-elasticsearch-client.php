@@ -208,7 +208,7 @@ class Elasticsearch_Client {
 		}
 
 		$res = wp_remote_request( $url, $args );
-		return $this->parse_response( $res, $method, $path );
+		return $this->parse_response( $res, $method, $path, $tolerate_codes );
 	}
 
 	/**
@@ -239,7 +239,7 @@ class Elasticsearch_Client {
 	 * @param string $path   For logging.
 	 * @return array|\WP_Error
 	 */
-	protected function parse_response( $res, string $method, string $path ) {
+	protected function parse_response( $res, string $method, string $path, array $tolerate_codes = array() ) {
 		if ( is_wp_error( $res ) ) {
 			$this->logger->error( Logger::CHAN_ELASTIC, 'Falha de transporte ao chamar Elasticsearch.', array(
 				'method'  => $method,

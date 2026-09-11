@@ -42,6 +42,36 @@ final class Search_Integration {
 	/** Totals reported by ES, keyed by WP_Query object id, awaiting set_found_posts(). */
 	private array $pending_totals = array();
 
+	/**
+	 * Routing suspended while we are resolving our own dependencies.
+	 *
+	 * Answering a query needs the list of Tainacan collection post types, and
+	 * fetching that list runs a WP_Query of its own — which fires
+	 * `posts_pre_query` right back into this class. Without this guard that is an
+	 * unbounded recursion that exhausts PHP's memory limit before anything is
+	 * returned. Static because a nested query may cross object boundaries
+	 * (facets -> search).
+	 */
+	private static bool $suspended = false;
+
+	/**
+	 * Run $fn with ES routing suspended, so any WP_Query it triggers goes to SQL.
+	 *
+	 * Restores the previous state rather than clearing it, so nested calls are safe.
+	 *
+	 * @param callable $fn Work to run.
+	 * @return mixed Whatever $fn returns.
+	 */
+	public static function without_routing( callable $fn ) {
+		$previous        = self::$suspended;
+		self::$suspended = true;
+		try {
+			return $fn();
+		} finally {
+			self::$suspended = $previous;
+		}
+	}
+
 	public function __construct( Settings $settings, Logger $logger, ElasticPress_Integration $elasticpress ) {
 		$this->settings     = $settings;
 		$this->logger       = $logger;
@@ -68,9 +98,15 @@ final class Search_Integration {
 		if ( ! ( $query instanceof \WP_Query ) ) {
 			return null;
 		}
+		// Already answering a query: this one is our own lookup, let SQL serve it.
+		if ( self::$suspended ) {
+			return null;
+		}
 
 		try {
-			return $this->answer( $query );
+			return self::without_routing( function () use ( $query ) {
+				return $this->answer( $query );
+			} );
 		} catch ( \Throwable $e ) {
 			// A bug here must never take down a collection page.
 			$this->mark_fallback( 'exception', $e->getMessage() );
@@ -82,6 +118,7 @@ final class Search_Integration {
 	 * @return array|null
 	 */
 	private function answer( \WP_Query $query ): ?array {
+
 		if ( ! $this->should_handle( $query ) ) {
 			return null;
 		}
@@ -219,10 +256,6 @@ final class Search_Integration {
 	 */
 	private function query_post_types( \WP_Query $query ): array {
 		$requested = $query->get( 'post_type' );
-		$known     = $this->collect_tainacan_post_types();
-		if ( empty( $known ) ) {
-			return array();
-		}
 
 		if ( empty( $requested ) || 'any' === $requested || ( is_array( $requested ) && in_array( 'any', $requested, true ) ) ) {
 			// An unscoped query also covers pages, posts and Tainacan's own CPTs
@@ -231,6 +264,21 @@ final class Search_Integration {
 		}
 
 		$requested = array_values( array_map( 'strval', (array) $requested ) );
+
+		// Cheap shape test first. Collection item post types are always
+		// `tnc_col_{id}_item`, so anything else (posts, pages, attachments,
+		// `tainacan-collection`, ...) is rejected without touching the database.
+		foreach ( $requested as $pt ) {
+			if ( ! preg_match( '/^tnc_col_\d+_item$/', $pt ) ) {
+				return array();
+			}
+		}
+
+		$known = $this->collect_tainacan_post_types();
+		if ( empty( $known ) ) {
+			return array();
+		}
+
 		foreach ( $requested as $pt ) {
 			if ( ! in_array( $pt, $known, true ) ) {
 				// Mixed or non-item post types: the index cannot answer completely.
@@ -347,17 +395,24 @@ final class Search_Integration {
 		$types = array();
 		if ( class_exists( '\\Tainacan\\Repositories\\Collections' ) ) {
 			try {
-				$repo = call_user_func( array( '\\Tainacan\\Repositories\\Collections', 'get_instance' ) );
-				$cols = $repo->fetch( array( 'posts_per_page' => -1 ), 'OBJECT' );
-				if ( is_array( $cols ) ) {
-					foreach ( $cols as $c ) {
-						if ( is_object( $c ) && method_exists( $c, 'get_db_identifier' ) ) {
-							$types[] = (string) $c->get_db_identifier();
+				// This fetch runs a WP_Query; without_routing() keeps it from
+				// re-entering this class through posts_pre_query.
+				$types = self::without_routing( static function () {
+					$found = array();
+					$repo  = call_user_func( array( '\\Tainacan\\Repositories\\Collections', 'get_instance' ) );
+					$cols  = $repo->fetch( array( 'posts_per_page' => -1 ), 'OBJECT' );
+					if ( is_array( $cols ) ) {
+						foreach ( $cols as $c ) {
+							if ( is_object( $c ) && method_exists( $c, 'get_db_identifier' ) ) {
+								$found[] = (string) $c->get_db_identifier();
+							}
 						}
 					}
-				}
+					return $found;
+				} );
 			} catch ( \Throwable $e ) {
 				// best effort.
+				$types = array();
 			}
 		}
 
