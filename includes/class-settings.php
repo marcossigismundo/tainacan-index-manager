@@ -46,12 +46,7 @@ final class Settings {
 			'alert_dashboard_enabled'   => true,
 			'fallback_enabled'          => true,
 			'route_item_lists'          => true,
-			// Off by default: ES `terms` aggregation orders keywords by raw UTF-8
-			// byte value, while MySQL orders postmeta.meta_value under
-			// utf8mb4_unicode_520_ci (case/accent-insensitive). Confirmed to
-			// diverge on real data. Enable only once the cluster indexes a
-			// collation-aware sort key (e.g. via the ICU analysis plugin).
-			'route_facets'              => false,
+			'route_facets'              => true,
 			'facet_max_terms'           => 300,
 			'log_retention_days'        => 30,
 			'last_index_run_ts'         => 0,

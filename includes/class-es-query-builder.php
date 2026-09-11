@@ -54,6 +54,7 @@ final class ES_Query_Builder {
 	private const HANDLED_ARGS = array(
 		'post_type',
 		'post_status',
+		'perm',
 		's',
 		'meta_query',
 		'tax_query',
@@ -121,7 +122,7 @@ final class ES_Query_Builder {
 
 		$filter[] = array( 'terms' => array( 'post_type' => array_values( array_map( 'strval', $post_types ) ) ) );
 
-		$statuses = self::resolve_statuses( $args['post_status'] ?? null );
+		$statuses = self::resolve_statuses( $args['post_status'] ?? null, $args['perm'] ?? '', $post_types );
 		if ( null === $statuses ) {
 			return null;
 		}
@@ -198,14 +199,37 @@ final class ES_Query_Builder {
 	/**
 	 * Determine which post statuses the query asks for.
 	 *
-	 * @param mixed $requested Raw `post_status` query var.
+	 * @param mixed    $requested  Raw `post_status` query var.
+	 * @param mixed    $perm       Raw `perm` query var ('readable' / 'editable').
+	 * @param string[] $post_types Post types in play, for capability lookup.
 	 * @return string[]|null Null when the query wants a status the index does not hold.
 	 */
-	private static function resolve_statuses( $requested ): ?array {
+	private static function resolve_statuses( $requested, $perm = '', array $post_types = array() ): ?array {
+		$perm = is_string( $perm ) ? strtolower( trim( $perm ) ) : '';
+
 		if ( empty( $requested ) ) {
 			// WP defaults to `publish` on the front end. Being explicit keeps deleted
 			// or unpublished leftovers in the index from surfacing publicly.
-			return array( 'publish' );
+			if ( '' === $perm ) {
+				return array( 'publish' );
+			}
+
+			// `perm` widens the default set to whatever this viewer is allowed to
+			// see. Anonymous visitors get public posts only — the same as the
+			// default — so nothing changes for them.
+			if ( ! is_user_logged_in() ) {
+				return array( 'publish' );
+			}
+
+			if ( self::can_read_private( $post_types ) ) {
+				return array( 'publish', 'private' );
+			}
+
+			// Remaining case: a logged-in user without the capability still sees
+			// their *own* private items. That is an author-scoped condition rather
+			// than a plain status filter, and getting it wrong would hide a
+			// curator's own records, so let SQL answer it.
+			return null;
 		}
 
 		$requested = (array) $requested;
@@ -224,6 +248,33 @@ final class ES_Query_Builder {
 		}
 
 		return empty( $statuses ) ? array( 'publish' ) : array_values( array_unique( $statuses ) );
+	}
+
+	/**
+	 * Whether the current user may read private items of every post type in play.
+	 *
+	 * Uses each post type's own `read_private_posts` capability, since Tainacan
+	 * registers per-collection capabilities rather than reusing the generic ones.
+	 *
+	 * @param string[] $post_types Post types the query targets.
+	 */
+	private static function can_read_private( array $post_types ): bool {
+		if ( empty( $post_types ) ) {
+			return false;
+		}
+
+		foreach ( $post_types as $post_type ) {
+			$object = get_post_type_object( $post_type );
+			$cap    = ( is_object( $object ) && isset( $object->cap->read_private_posts ) )
+				? (string) $object->cap->read_private_posts
+				: 'read_private_posts';
+
+			if ( ! current_user_can( $cap ) ) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	/**

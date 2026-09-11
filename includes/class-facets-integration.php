@@ -90,8 +90,24 @@ final class Facets_Integration {
 			return null;
 		}
 
+		// Facet values are ordered alphabetically under MySQL's collation, and the
+		// only faithful way to reproduce that here is ICU. Without `intl` an
+		// approximation would reorder values — and therefore change which ones land
+		// in the requested page — so hand the whole thing back to SQL instead.
+		if ( ! self::collator() instanceof \Collator ) {
+			return null;
+		}
+
 		$type = method_exists( $metadatum, 'get_metadata_type' ) ? (string) $metadatum->get_metadata_type() : '';
 		if ( ! in_array( $type, self::SUPPORTED_TYPES, true ) ) {
+			return null;
+		}
+
+		// A metadatum with more distinct values than the cap can never be served
+		// from here (see the sum_other_doc_count check below). Some are effectively
+		// unique per item — a registration number, say — so skip the aggregation
+		// rather than run one whose result is unusable.
+		if ( false !== get_transient( self::oversized_key( (int) $metadatum->get_id() ) ) ) {
 			return null;
 		}
 
@@ -136,11 +152,21 @@ final class Facets_Integration {
 		$search_term = trim( (string) ( $args['search'] ?? '' ) );
 		$count_items = ! empty( $args['count_items'] );
 
+		// Ask for the configured ceiling, not just the requested window.
+		//
+		// Tainacan orders facet values by `meta_value` under MySQL's
+		// utf8mb4_unicode_520_ci collation; an ES `terms` aggregation orders keyword
+		// buckets by raw UTF-8 byte value. Those two orders disagree, so slicing the
+		// ES order would return a *different set* of values, not merely a different
+		// arrangement. Pulling every distinct value and re-sorting it here in PHP
+		// sidesteps that entirely — and is only valid while the whole value list fits
+		// in one aggregation, which is checked against `sum_other_doc_count` below.
 		$terms_agg = array(
 			'field' => 'metadata.value_keyword',
-			'size'  => max( 1, $needed ),
-			// Tainacan orders facet values by value ascending.
-			'order' => array( '_key' => 'asc' ),
+			'size'  => max( 1, $cap ),
+			// Order by count so the cap, if ever hit, keeps the most relevant values;
+			// the final ordering is applied in PHP.
+			'order' => array( '_count' => 'desc' ),
 		);
 		if ( '' !== $search_term ) {
 			// SQL uses `meta_value LIKE %term%`; the keyword equivalent is a
@@ -158,17 +184,11 @@ final class Facets_Integration {
 						'f' => array(
 							'filter' => array( 'term' => array( 'metadata.metadatum_id' => (int) $metadatum->get_id() ) ),
 							'aggs'   => array(
-								'vals'     => array(
+								'vals' => array(
 									'terms' => $terms_agg,
 									'aggs'  => array(
 										// Counts must be *items*, not nested metadata rows.
 										'back' => array( 'reverse_nested' => new \stdClass() ),
-									),
-								),
-								'distinct' => array(
-									'cardinality' => array(
-										'field'               => 'metadata.value_keyword',
-										'precision_threshold' => 40000,
 									),
 								),
 							),
@@ -195,11 +215,26 @@ final class Facets_Integration {
 
 		$buckets = $agg['vals']['buckets'];
 
-		// Exact when every distinct value fit in the requested window; otherwise fall
-		// back to the cardinality estimate.
-		$total = count( $buckets ) < $terms_agg['size']
-			? count( $buckets )
-			: (int) ( $agg['distinct']['value'] ?? count( $buckets ) );
+		// If the aggregation had to leave values out, the list we can sort is not the
+		// whole list, so any window we cut from it could differ from SQL's. Refuse —
+		// and remember it, so the next request skips straight to SQL instead of
+		// paying for an aggregation whose result we already know we cannot use.
+		if ( ! empty( $agg['vals']['sum_other_doc_count'] ) ) {
+			set_transient( self::oversized_key( (int) $metadatum->get_id() ), 1, HOUR_IN_SECONDS );
+			return null;
+		}
+
+		// Every distinct value is present, so the count is exact.
+		$total = count( $buckets );
+
+		// Reproduce MySQL's `ORDER BY meta_value` under a case/accent-insensitive
+		// Unicode collation, then cut the requested window from that order.
+		usort(
+			$buckets,
+			static function ( $a, $b ) {
+				return self::compare_values( (string) ( $a['key'] ?? '' ), (string) ( $b['key'] ?? '' ) );
+			}
+		);
 
 		if ( $offset > 0 || $number > 0 ) {
 			$buckets = array_slice( $buckets, $offset, $number > 0 ? $number : null );
@@ -269,6 +304,68 @@ final class Facets_Integration {
 		} catch ( \Throwable $e ) {
 			return array();
 		}
+	}
+
+	/**
+	 * Transient key marking a metadatum whose value list exceeds `facet_max_terms`.
+	 */
+	private static function oversized_key( int $metadatum_id ): string {
+		return 'tim_facet_oversized_' . $metadatum_id;
+	}
+
+	/**
+	 * Compare two facet values the way MySQL's collation would.
+	 *
+	 * `wp_postmeta.meta_value` is utf8mb4_unicode_520_ci, so ordering is
+	 * case-insensitive and derives from the Unicode Collation Algorithm. PHP's
+	 * `Collator` implements the same algorithm through ICU, which is what
+	 * unicode_520 is built on, so it is used whenever `intl` is available.
+	 *
+	 * Without `intl` we fall back to comparing accent-folded, case-folded strings.
+	 * That reproduces the collation for ordinary Latin text — which is what these
+	 * facets hold — and ties are broken on the raw value so the order stays stable.
+	 */
+	private static function compare_values( string $a, string $b ): int {
+		$collator = self::collator();
+		if ( ! $collator instanceof \Collator ) {
+			// serve() refuses to route without a collator, so this is unreachable;
+			// kept so the comparator is never silently wrong if that changes.
+			return strcmp( $a, $b );
+		}
+
+		$result = $collator->compare( $a, $b );
+		if ( false === $result ) {
+			return strcmp( $a, $b );
+		}
+		// Equal primary weights (e.g. "SAO" vs "São"): break the tie deterministically
+		// so pagination cannot shuffle between requests.
+		return 0 !== $result ? (int) $result : strcmp( $a, $b );
+	}
+
+	/**
+	 * ICU collator for pt_BR, or null when the `intl` extension is unavailable.
+	 *
+	 * @return \Collator|null
+	 */
+	private static function collator() {
+		static $collator = false;
+
+		if ( false === $collator ) {
+			$collator = null;
+			if ( class_exists( '\\Collator' ) ) {
+				try {
+					$candidate = new \Collator( 'pt_BR' );
+					// A broken ICU build returns a collator that fails on use.
+					if ( false !== $candidate->compare( 'a', 'b' ) ) {
+						$collator = $candidate;
+					}
+				} catch ( \Throwable $e ) {
+					$collator = null;
+				}
+			}
+		}
+
+		return $collator;
 	}
 
 	/**
