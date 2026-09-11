@@ -341,10 +341,42 @@ final class Search_Integration {
 		$query->found_posts   = $total;
 		$query->max_num_pages = $per_page > 0 ? (int) ceil( $total / $per_page ) : 0;
 
-		$this->pending_totals[ spl_object_id( $query ) ] = $total;
+		// The entry keeps a reference to the query object itself, for two reasons:
+		// it pins the object so `spl_object_id()` cannot hand the same id to a later
+		// query, and it lets the filters below confirm identity before answering.
+		// Without that, a leaked entry (see below) would feed one query's total to
+		// an unrelated one.
+		//
+		// Entries do leak: for the default `fields`, WP_Query never calls
+		// set_found_posts() once posts_pre_query returns, so filter_found_posts()
+		// never fires to clean up. That is harmless as long as identity is checked.
+		$this->pending_totals[ spl_object_id( $query ) ] = array(
+			'total' => $total,
+			'query' => $query,
+		);
 
 		add_filter( 'found_posts_query', array( $this, 'filter_found_posts_query' ), 10, 2 );
 		add_filter( 'found_posts', array( $this, 'filter_found_posts' ), 10, 2 );
+	}
+
+	/**
+	 * Total we recorded for exactly this query object, or null.
+	 *
+	 * @param \WP_Query $query Query instance.
+	 */
+	private function pending_total_for( \WP_Query $query ): ?int {
+		$key = spl_object_id( $query );
+		if ( ! isset( $this->pending_totals[ $key ] ) ) {
+			return null;
+		}
+
+		$entry = $this->pending_totals[ $key ];
+		// Identity, not just a matching id — ids are recycled.
+		if ( ! isset( $entry['query'] ) || $entry['query'] !== $query ) {
+			return null;
+		}
+
+		return (int) $entry['total'];
 	}
 
 	/**
@@ -355,7 +387,7 @@ final class Search_Integration {
 	 * @return string
 	 */
 	public function filter_found_posts_query( $sql, $query ) {
-		if ( $query instanceof \WP_Query && isset( $this->pending_totals[ spl_object_id( $query ) ] ) ) {
+		if ( $query instanceof \WP_Query && null !== $this->pending_total_for( $query ) ) {
 			return '';
 		}
 		return $sql;
@@ -372,13 +404,13 @@ final class Search_Integration {
 		if ( ! ( $query instanceof \WP_Query ) ) {
 			return $found_posts;
 		}
-		$key = spl_object_id( $query );
-		if ( ! isset( $this->pending_totals[ $key ] ) ) {
+
+		$total = $this->pending_total_for( $query );
+		if ( null === $total ) {
 			return $found_posts;
 		}
 
-		$total = (int) $this->pending_totals[ $key ];
-		unset( $this->pending_totals[ $key ] );
+		unset( $this->pending_totals[ spl_object_id( $query ) ] );
 
 		return $total;
 	}
