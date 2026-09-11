@@ -4,7 +4,7 @@ Plugin WordPress integrado ao [Tainacan](https://tainacan.org/) que oferece:
 
 - Painel **Tainacan > Saúde da Busca** com indicadores de cluster, índice, cobertura e divergência.
 - Monitoramento periódico (WP-Cron) de **Elasticsearch** e **OpenSearch**.
-- Integração somente-leitura com **ElasticPress** quando ele está ativo.
+- Suspende o próprio roteamento (por segurança, não como recurso) enquanto o **ElasticPress** estiver ativo, com observação somente-leitura do estado dele.
 - **Indexador próprio** com mappings/analyzers otimizados para português brasileiro, processamento em lote e controle pausar/retomar/cancelar.
 - Roteamento da **listagem de itens e das facetas** do Tainacan para o índice, com **fallback automático para SQL** quando o ES falha.
 - Sistema de **alertas** (painel + e-mail) e **logs** com tabela própria e retenção configurável.
@@ -53,6 +53,15 @@ Todas as configurações ficam em uma única opção (`tainacan_index_manager_se
 
 Credenciais nunca são expostas pela REST (`__set__` indica "valor armazenado"). Logs aplicam scrub de chaves que contenham `password`, `secret`, `token`, `authorization`, `api_key`.
 
+> **`Settings::update()` sempre relê antes de mesclar.** A opção é um único array
+> serializado, e `update()` reescreve ele inteiro. Um objeto `Settings` de vida
+> longa (um `Cron` que só grava `last_index_run_ts`, por exemplo) que gravasse a
+> partir da cópia em memória feita na sua construção reverteria silenciosamente
+> qualquer chave alterada por outro processo nesse meio-tempo — foi assim que
+> `engine`/`index_name` voltavam sozinhos ao valor antigo minutos depois de
+> salvos pelo painel, produzindo lentidão intermitente. `update()` chama
+> `self::all()` (que lê a option de novo) antes de aplicar o `$partial`.
+
 ## Integração com o admin do Tainacan
 
 A partir da versão 1.1.0 o plugin estende `\Tainacan\Pages` (introduzida no Tainacan 1.0.0) seguindo
@@ -61,7 +70,15 @@ o procedimento oficial documentado em
 
 - **Saúde da Busca** entra como item do menu raiz do Tainacan (posição 60) via `$this->tainacan_root_menu_slug`.
 - **Configurações de Indexação** entra no submenu "Outros" (`$this->tainacan_other_links_slug`).
-- Ícones SVG nativos do Tainacan via `$this->get_svg_icon('chart' | 'settings')`.
+- Ícones via `Tainacan_Icon::svg()`, não o `$this->get_svg_icon()` do trait nativo:
+  o trait chama `file_get_contents()` sem checar se o arquivo existe, e os ícones
+  `chart`/`dashboard` não existem nem no Tainacan 1.0.3 nem no 1.1.0 — o warning
+  saía impresso no meio do HTML do menu e o WordPress emendava com "headers
+  already sent", derrubando o cabeçalho do admin inteiro logo após ativar o
+  plugin. `Tainacan_Icon::svg()` resolve a mesma pasta que o trait (inclusive o
+  filtro `tainacan-svg-icons-folder-path`), testa cada candidato com
+  `is_readable()` e cai para `''` se nenhum existir; o painel pede `reports` e
+  `settings`, com alternativas em ordem de preferência.
 - Renderização dentro de `<div class="wrap tainacan-page-container-content">` + `<div class="tainacan-fixed-subheader"><h1 class="tainacan-page-title">…`, herdando sidebar, header e tema do Tainacan.
 - `admin_enqueue_css()` / `admin_enqueue_js()` carregam Vue 3 (vendored) + admin.js só dentro das duas páginas.
 
@@ -92,6 +109,7 @@ includes/
 ├── class-cron.php                   Schedules + 3 ticks (health, index, cleanup)
 ├── class-rest-controller.php        Namespace tainacan-index-manager/v1
 ├── class-admin-page.php             Bootstrap das páginas + fallback standalone
+├── class-tainacan-icon.php          Ícone SVG resiliente (is_readable() antes do file_get_contents())
 └── tainacan-pages/
     ├── class-dashboard-page.php     \Tainacan\TIM_Dashboard_Page extends \Tainacan\Pages
     └── class-settings-page.php      \Tainacan\TIM_Settings_Page  extends \Tainacan\Pages
@@ -139,7 +157,24 @@ os filtros de faceta — por isso o gancho não se limita mais a `is_search()`.
   — itens já excluídos, ainda marcados como `draft` — podiam aparecer publicamente.
 - Publica `found_posts`/`max_num_pages` a partir do total do ES, então a paginação
   fica correta. A implementação anterior usava `post__in` com teto de 200 hits, o
-  que quebrava a paginação a partir da primeira página.
+  que quebrava a paginação a partir da primeira página. O total fica associado à
+  instância exata da `WP_Query` (não só ao seu `spl_object_id()`, que o PHP
+  reaproveita entre objetos) — sem isso, uma consulta sem relação nenhuma podia
+  herdar o total de outra, o que na prática derrubava listas inteiras do admin
+  de forma intermitente.
+- Nunca responde a uma busca por post específico (`is_singular()`, `name`,
+  `pagename`, `p`/`page_id`, `post_name__in`): o índice não conhece esses
+  filtros, só `post__in`. Sem essa exclusão, todo permalink de item
+  (`/{coleção}/{slug}/`) caía no roteamento, o índice devolvia a listagem da
+  coleção inteira e o WordPress ficava com o primeiro resultado — todo
+  permalink da coleção abria o mesmo item, e slugs inexistentes deixavam de
+  dar 404.
+- Reentrância protegida: montar a lista de post types de coleção roda um
+  `WP_Query` próprio (`Collections::fetch()`), que dispara `posts_pre_query`
+  de volta nesta mesma classe. Sem uma trava, isso é recursão infinita até
+  estourar o limite de memória do PHP — `Search_Integration::without_routing()`
+  suspende o roteamento enquanto essas consultas internas rodam, servindo-as
+  sempre por SQL.
 - Em qualquer falha do ES: devolve `null`, o SQL roda intacto, marca
   `tainacan_idxmgr_fallback_active` (transient 1h) e dispara alerta.
 
@@ -175,6 +210,20 @@ Guardas que devolvem o controle ao SQL: `hideempty=0` (o índice só conhece val
 presentes em itens), uso de `include`, janela maior que `facet_max_terms`, e
 qualquer chave em `items_filter` que o builder não modele — esta última é essencial,
 porque ignorar um filtro silenciosamente inflaria as contagens.
+
+**Ordenação idêntica ao SQL, via ICU.** `wp_postmeta.meta_value` é ordenado pelo
+MySQL sob `utf8mb4_unicode_520_ci` (case/acento-insensível); uma agregação
+`terms` do ES ordena por valor de byte UTF-8 puro — os dois divergem de verdade
+(confirmado com dados reais: o topo alfabético de 20 valores era um conjunto
+diferente, não só uma ordem diferente). Como isso só importa onde a lista é
+cortada, a agregação pede **todos** os valores distintos (até `facet_max_terms`)
+e a ordenação final é feita em PHP com `Collator` (extensão `intl`), que
+implementa o mesmo algoritmo em que aquela collation se baseia. Sem `intl`
+disponível, `Facets_Integration` se recusa a rotear — nunca aproxima. Metadados
+com mais valores distintos que `facet_max_terms` (ex.: um número de registro,
+praticamente único por item) ficam memorizados por 1h como "grandes demais" e
+pulam direto para o SQL, sem pagar a agregação cujo resultado já se sabe
+inutilizável.
 
 ### Mappings PT-BR
 
@@ -255,8 +304,10 @@ A `Indexer_Metrics` registra cada batch e expõe:
 | `init` | Garantir ticks de cron |
 | `cron_schedules` | Recurrences `tim_15min`, `tim_30min`, `tim_6hours`, `tim_minute` |
 | `save_post` | Enfileira reindex incremental quando item Tainacan muda |
-| `before_delete_post` | Apaga doc do índice |
-| `pre_get_posts` | Reescreve busca front-end para usar ES |
+| `before_delete_post` | Apaga doc do índice (404 é sucesso, não erro — o doc já não estava lá) |
+| `posts_pre_query` | Responde listagem/facetas/busca pelo índice, com fallback SQL |
+| `tainacan-fetch-all-metadatum-values` | Responde facetas via agregação, com fallback SQL |
+| `found_posts_query` / `found_posts` | Substituem o `SELECT FOUND_ROWS()` pelo total que o ES já devolveu |
 | `rest_api_init` | Registra rotas |
 | `admin_menu` | Submenus em Tainacan (ou top-level fallback) |
 | `admin_enqueue_scripts` | Carrega Vue + admin.js + admin.css |
@@ -304,9 +355,9 @@ A `Indexer_Metrics` registra cada batch e expõe:
 4. Reindexar tudo → cron drena fila em batches, painel mostra progresso.
 5. Apagar 1 item Tainacan → contagem do índice cai em 1 na próxima verificação.
 6. Editar 1 item → reindex incremental via `save_post`.
-7. Filtrar busca no front → resultados vêm na ordem do `multi_match`.
+7. Filtrar busca no front → resultados vêm na ordem do `multi_match`; abrir o permalink de um item continua resolvendo o item certo (não a listagem da coleção).
 8. Forçar erro ES (parar serviço durante uma busca) → fallback SQL automático, log + alerta.
-9. EP ativo → plugin entra em modo read-only do EP; rota `/elasticpress` retorna snapshot.
+9. EP ativo → roteamento deste plugin fica suspenso (segurança, não escolha do usuário) e a rota `/elasticpress` retorna snapshot de observação.
 
 ## Limitações conhecidas
 
@@ -317,6 +368,8 @@ A `Indexer_Metrics` registra cada batch e expõe:
 - Consultas sem paginação (`posts_per_page = -1` / `nopaging`), típicas de exportação, caem para SQL de propósito.
 - A descoberta de post types de coleções é cacheada por request; se uma coleção for criada no meio de uma request, talvez não apareça imediatamente.
 - Documentos órfãos (itens excluídos enquanto o ES estava fora do ar) só somem ao rodar `POST /index/purge-orphans`.
+- Item movido para a lixeira (`wp_trash_post`) não é removido do índice: o hook `before_delete_post` só dispara em exclusão permanente. Enquanto estiver na lixeira, o item continua indexado sob o `post_status` que tinha antes.
+- Metadados com mais valores distintos que `facet_max_terms` nunca são servidos pelo índice (ver seção de facetas) — a faceta correspondente sempre roda em SQL.
 - O acionamento de `elasticpress sync` exige WP-CLI; sem WP-CLI, o admin precisa rodar sync pela própria UI do EP.
 
 ## Melhorias futuras recomendadas
