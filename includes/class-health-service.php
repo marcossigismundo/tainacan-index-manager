@@ -73,6 +73,9 @@ final class Health_Service {
 			'es_version'                => null,
 			'cluster_status'            => null,
 			'cluster'                   => null,
+			'index_status'              => null,
+			'index_unassigned_shards'   => null,
+			'single_node_cluster'       => false,
 			'index_name'                => (string) $this->settings->get( 'index_name' ),
 			'index_exists'              => false,
 			'index_doc_count'           => null,
@@ -123,8 +126,22 @@ final class Health_Service {
 			);
 		}
 
+		$snapshot['single_node_cluster'] = ( 1 === ( $snapshot['cluster']['number_of_nodes'] ?? 0 ) );
+
 		$exists                   = $this->client->index_exists( $snapshot['index_name'] );
 		$snapshot['index_exists'] = is_bool( $exists ) ? $exists : false;
+
+		// Health of *our* index, which is what this panel is actually about. The
+		// cluster is shared — at IBRAM the same Elasticsearch carries ElasticPress
+		// indices of other sites — so cluster-wide yellow says nothing about
+		// whether Tainacan's search is healthy. Classification below prefers this.
+		if ( $snapshot['index_exists'] ) {
+			$index_health = $this->client->index_health( $snapshot['index_name'] );
+			if ( is_array( $index_health ) && isset( $index_health['status'] ) ) {
+				$snapshot['index_status']            = sanitize_text_field( (string) $index_health['status'] );
+				$snapshot['index_unassigned_shards'] = isset( $index_health['unassigned_shards'] ) ? (int) $index_health['unassigned_shards'] : null;
+			}
+		}
 
 		if ( $snapshot['index_exists'] ) {
 			$stats = $this->client->index_stats( $snapshot['index_name'] );
@@ -165,13 +182,17 @@ final class Health_Service {
 			$snapshot['effective_engine'] = 'elasticsearch';
 		}
 
-		// Final classification.
-		if ( 'red' === $snapshot['cluster_status'] ) {
+		// Final classification. `shard_status()` already narrows this to our own
+		// index and discounts the single-node yellow, so only a state that really
+		// affects Tainacan's search reaches the site-wide badge.
+		$shard_status = $this->shard_status( $snapshot );
+
+		if ( 'red' === $shard_status ) {
 			$snapshot['overall_status']  = 'critical';
-			$snapshot['overall_message'] = __( 'Cluster em estado RED: ação imediata necessária.', 'tainacan-index-manager' );
-		} elseif ( 'yellow' === $snapshot['cluster_status'] ) {
+			$snapshot['overall_message'] = __( 'Shards primários do índice não alocados: ação imediata necessária.', 'tainacan-index-manager' );
+		} elseif ( 'yellow' === $shard_status ) {
 			$snapshot['overall_status']  = 'warning';
-			$snapshot['overall_message'] = __( 'Cluster em estado YELLOW: shards não totalmente alocados.', 'tainacan-index-manager' );
+			$snapshot['overall_message'] = __( 'Índice em estado YELLOW: shards não totalmente alocados.', 'tainacan-index-manager' );
 		} elseif ( ! $snapshot['index_exists'] ) {
 			$snapshot['overall_status']  = 'warning';
 			$snapshot['overall_message'] = __( 'O índice ainda não foi criado. Inicialize-o em Configurações.', 'tainacan-index-manager' );
@@ -201,6 +222,44 @@ final class Health_Service {
 	}
 
 	/**
+	 * Shard status that actually reflects on Tainacan's search.
+	 *
+	 * Two corrections over reading `_cluster/health` straight:
+	 *
+	 * 1. **Scope.** Prefer the health of the index this plugin manages. The
+	 *    cluster is commonly shared — at IBRAM the same Elasticsearch holds
+	 *    ElasticPress indices of unrelated sites — and a neighbour's unassigned
+	 *    replica used to paint this panel yellow and drag the whole site badge
+	 *    down with it. Only fall back to cluster-wide when we have no index
+	 *    health (index not created yet, or the call failed).
+	 *
+	 * 2. **Single node.** On a one-node cluster, `number_of_replicas >= 1` leaves
+	 *    every replica permanently unassigned, because there is no second node to
+	 *    put it on. That is yellow forever, by construction, with the search fully
+	 *    functional — `Diagnostics` already treats it as info, and this is where
+	 *    that judgement belongs too. Yellow means every *primary* is allocated, so
+	 *    a single node can only be missing replicas; red still passes through.
+	 *
+	 * @param array $snapshot Built snapshot.
+	 * @return string One of 'green', 'yellow', 'red', or '' when unknown.
+	 */
+	private function shard_status( array $snapshot ): string {
+		$status = $snapshot['index_status'] ?? null;
+		if ( null === $status || '' === $status ) {
+			$status = $snapshot['cluster_status'] ?? null;
+		}
+		if ( ! is_string( $status ) || '' === $status ) {
+			return '';
+		}
+
+		if ( 'yellow' === $status && ! empty( $snapshot['single_node_cluster'] ) ) {
+			return 'green';
+		}
+
+		return $status;
+	}
+
+	/**
 	 * Convert WordPress error/snapshot fields into a list of human alerts.
 	 *
 	 * @param array $snapshot Built snapshot.
@@ -217,16 +276,30 @@ final class Health_Service {
 		$this->alerts->clear( 'es_unreachable' );
 		$this->alerts->clear( 'es_not_configured' );
 
-		if ( 'red' === $snapshot['cluster_status'] ) {
-			$this->alerts->raise( 'cluster_red', Alerts::SEV_CRITICAL, __( 'Cluster em estado RED.', 'tainacan-index-manager' ) );
+		$shard_status = $this->shard_status( $snapshot );
+
+		if ( 'red' === $shard_status ) {
+			$this->alerts->raise( 'cluster_red', Alerts::SEV_CRITICAL, __( 'Shards primários do índice não alocados.', 'tainacan-index-manager' ) );
 		} else {
 			$this->alerts->clear( 'cluster_red' );
 		}
 
-		if ( 'yellow' === $snapshot['cluster_status'] ) {
-			$this->alerts->raise( 'cluster_yellow', Alerts::SEV_WARNING, __( 'Cluster em estado YELLOW (shards não totalmente alocados).', 'tainacan-index-manager' ) );
+		if ( 'yellow' === $shard_status ) {
+			$this->alerts->raise( 'cluster_yellow', Alerts::SEV_WARNING, __( 'Índice em estado YELLOW (shards não totalmente alocados).', 'tainacan-index-manager' ) );
+			$this->alerts->clear( 'cluster_yellow_single_node' );
+		} elseif ( 'yellow' === $snapshot['index_status'] && $snapshot['single_node_cluster'] ) {
+			$this->alerts->clear( 'cluster_yellow' );
+			// Benign: a replica with nowhere to go. Say so once, at info level, so
+			// the manager who sees YELLOW in Elasticsearch itself finds the
+			// explanation here instead of opening a ticket.
+			$this->alerts->raise(
+				'cluster_yellow_single_node',
+				Alerts::SEV_INFO,
+				__( 'Índice em YELLOW porque o cluster tem um nó só: as réplicas não têm onde ser alocadas. A busca não é afetada.', 'tainacan-index-manager' )
+			);
 		} else {
 			$this->alerts->clear( 'cluster_yellow' );
+			$this->alerts->clear( 'cluster_yellow_single_node' );
 		}
 
 		if ( null !== $snapshot['divergence_pct'] && $snapshot['divergence_pct'] > $snapshot['divergence_threshold_pct'] ) {

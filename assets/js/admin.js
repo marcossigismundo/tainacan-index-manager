@@ -191,12 +191,12 @@
 						</span>\
 						<span class="tim-card-sub">{{ snapshot.overall_message }}</span>\
 					</div>\
-					<div :class="[\'tim-card\', clusterClass(snapshot.cluster_status)]">\
+					<div :class="[\'tim-card\', clusterClass(shardStatus)]">\
 						<span class="tim-card-label">{{ i18n.cluster }}</span>\
 						<span class="tim-card-value">\
-							<span :class="[\'tim-status-pill\', statusClass(snapshot.cluster_status)]">{{ (snapshot.cluster_status || \'—\').toUpperCase() }}</span>\
+							<span :class="[\'tim-status-pill\', statusClass(shardStatus)]">{{ (shardStatus || \'—\').toUpperCase() }}</span>\
 						</span>\
-						<span class="tim-card-sub" v-if="snapshot.cluster">{{ snapshot.cluster.number_of_nodes }} nós · {{ snapshot.cluster.active_shards }} shards · {{ snapshot.cluster.unassigned_shards }} unassigned</span>\
+						<span class="tim-card-sub" v-if="snapshot.cluster">{{ snapshot.cluster.number_of_nodes }} nós · {{ snapshot.cluster.active_shards }} shards · {{ snapshot.cluster.unassigned_shards }} unassigned<template v-if="snapshot.index_status && snapshot.cluster_status !== snapshot.index_status"> · cluster {{ snapshot.cluster_status.toUpperCase() }} (outros sistemas)</template></span>\
 					</div>\
 					<div class="tim-card">\
 						<span class="tim-card-label">{{ i18n.response_time }}</span>\
@@ -454,6 +454,19 @@
 			};
 		},
 		computed: {
+			// Status of the index this plugin manages, not of the whole cluster:
+			// the same Elasticsearch usually carries indices of other systems,
+			// whose unassigned replicas are not a Tainacan problem. A single-node
+			// cluster can never allocate a replica, so yellow there is benign —
+			// same rule as Health_Service::shard_status() on the PHP side.
+			shardStatus: function () {
+				var s = this.snapshot || {};
+				var status = s.index_status || s.cluster_status || '';
+				if ('yellow' === status && s.single_node_cluster) {
+					return 'green';
+				}
+				return status;
+			},
 			tabs: function () {
 				return [
 					{ id: 'overview',     label: 'Visão geral' },

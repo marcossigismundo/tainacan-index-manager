@@ -44,6 +44,22 @@ class Elasticsearch_Client {
 	}
 
 	/**
+	 * Health of a single index (_cluster/health/<index>).
+	 *
+	 * The cluster is routinely shared: at IBRAM the same Elasticsearch serves
+	 * this plugin's indices side by side with ElasticPress indices of unrelated
+	 * sites. Cluster-wide status therefore says nothing about whether *our*
+	 * search works — a neighbour's unassigned replica must not be reported here
+	 * as a problem with Tainacan. Ask about the index we actually manage.
+	 *
+	 * @return array|\WP_Error
+	 */
+	public function index_health( string $index ) {
+		$index = $this->sanitize_index_name( $index );
+		return $this->request( 'GET', '/_cluster/health/' . rawurlencode( $index ) );
+	}
+
+	/**
 	 * Get a specific index's stats. Returns assoc or WP_Error.
 	 *
 	 * @return array|\WP_Error
