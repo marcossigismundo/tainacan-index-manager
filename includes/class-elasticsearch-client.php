@@ -18,6 +18,13 @@ defined( 'ABSPATH' ) || exit;
  */
 class Elasticsearch_Client {
 
+	/**
+	 * Seconds for operations that (re)build analyzers: creating an index, closing,
+	 * opening, changing settings. A synonym map of ~1,600 rules took longer than
+	 * the 5 s search timeout to build on the IBRAM cluster (ES 8.6).
+	 */
+	public const ANALYSIS_TIMEOUT = 120;
+
 	protected Settings $settings;
 	protected Logger $logger;
 
@@ -41,6 +48,22 @@ class Elasticsearch_Client {
 	 */
 	public function cluster_health() {
 		return $this->request( 'GET', '/_cluster/health' );
+	}
+
+	/**
+	 * Health of a single index (_cluster/health/<index>).
+	 *
+	 * The cluster is routinely shared: at IBRAM the same Elasticsearch serves
+	 * this plugin's indices side by side with indices of unrelated sites and
+	 * systems. Cluster-wide status therefore says nothing about whether *our*
+	 * search works — a neighbour's unassigned replica must not be reported here
+	 * as a problem with Tainacan. Ask about the index we actually manage.
+	 *
+	 * @return array|\WP_Error
+	 */
+	public function index_health( string $index ) {
+		$index = $this->sanitize_index_name( $index );
+		return $this->request( 'GET', '/_cluster/health/' . rawurlencode( $index ) );
 	}
 
 	/**
@@ -73,9 +96,9 @@ class Elasticsearch_Client {
 	 *
 	 * @return array|\WP_Error
 	 */
-	public function create_index( string $index, array $body ) {
+	public function create_index( string $index, array $body, int $timeout = 0 ) {
 		$index = $this->sanitize_index_name( $index );
-		return $this->request( 'PUT', '/' . rawurlencode( $index ), $body );
+		return $this->request( 'PUT', '/' . rawurlencode( $index ), $body, array(), $timeout );
 	}
 
 	/**
@@ -104,10 +127,13 @@ class Elasticsearch_Client {
 	 *
 	 * @return array|\WP_Error
 	 */
-	public function delete_document( string $index, string $id ) {
+	public function delete_document( string $index, string $id, bool $tolerate_missing = true ) {
 		$index = $this->sanitize_index_name( $index );
 		$path  = '/' . rawurlencode( $index ) . '/_doc/' . rawurlencode( $id );
-		return $this->request( 'DELETE', $path );
+		// A 404 means the document is not in the index, which is precisely the
+		// state the caller wanted. Treating it as an error is what produced the
+		// recurring "Falha ao apagar documento" noise.
+		return $this->request( 'DELETE', $path, null, $tolerate_missing ? array( 404 ) : array() );
 	}
 
 	/**
@@ -182,11 +208,75 @@ class Elasticsearch_Client {
 	}
 
 	/**
-	 * Issue an arbitrary JSON request. Returns decoded body on success, WP_Error on failure.
+	 * Run an analyzer defined on an index over some text (_analyze).
+	 *
+	 * @param array $body `analyzer` + `text`, or an inline `tokenizer`/`filter` chain.
+	 * @return array|\WP_Error
+	 */
+	public function analyze( string $index, array $body ) {
+		$index = $this->sanitize_index_name( $index );
+		return $this->request( 'POST', '/' . rawurlencode( $index ) . '/_analyze', $body, array(), 30 );
+	}
+
+	/**
+	 * Read an index's settings (flat=false).
 	 *
 	 * @return array|\WP_Error
 	 */
-	protected function request( string $method, string $path, $body = null ) {
+	public function get_index_settings( string $index ) {
+		$index = $this->sanitize_index_name( $index );
+		return $this->request( 'GET', '/' . rawurlencode( $index ) . '/_settings' );
+	}
+
+	/**
+	 * Close an index. Analysis settings can only be changed while it is closed.
+	 *
+	 * @return array|\WP_Error
+	 */
+	public function close_index( string $index ) {
+		$index = $this->sanitize_index_name( $index );
+		return $this->request( 'POST', '/' . rawurlencode( $index ) . '/_close', null, array(), self::ANALYSIS_TIMEOUT );
+	}
+
+	/**
+	 * Open an index and wait for its primary shard.
+	 *
+	 * @return array|\WP_Error
+	 */
+	public function open_index( string $index ) {
+		$index = $this->sanitize_index_name( $index );
+		return $this->request( 'POST', '/' . rawurlencode( $index ) . '/_open?wait_for_active_shards=1', null, array(), self::ANALYSIS_TIMEOUT );
+	}
+
+	/**
+	 * Update index settings (PUT _settings).
+	 *
+	 * @return array|\WP_Error
+	 */
+	public function put_index_settings( string $index, array $body ) {
+		$index = $this->sanitize_index_name( $index );
+		return $this->request( 'PUT', '/' . rawurlencode( $index ) . '/_settings', $body, array(), self::ANALYSIS_TIMEOUT );
+	}
+
+	/**
+	 * Block until the index reaches at least `$status`, or `$seconds` pass.
+	 *
+	 * @return array|\WP_Error Health body; check `timed_out`.
+	 */
+	public function wait_for_index( string $index, string $status = 'yellow', int $seconds = 30 ) {
+		$index = $this->sanitize_index_name( $index );
+		$path  = '/_cluster/health/' . rawurlencode( $index ) . '?wait_for_status=' . rawurlencode( $status ) . '&timeout=' . $seconds . 's';
+		return $this->request( 'GET', $path, null, array( 408 ), $seconds + 10 );
+	}
+
+	/**
+	 * Issue an arbitrary JSON request. Returns decoded body on success, WP_Error on failure.
+	 *
+	 * @param int $timeout Seconds; 0 uses the configured `es_timeout`. Index
+	 *                     open/close legitimately take longer than a search.
+	 * @return array|\WP_Error
+	 */
+	protected function request( string $method, string $path, $body = null, array $tolerate_codes = array(), int $timeout = 0 ) {
 		if ( ! $this->is_configured() ) {
 			return new \WP_Error( 'tim_es_not_configured', __( 'Elasticsearch/OpenSearch não está configurado.', 'tainacan-index-manager' ) );
 		}
@@ -194,7 +284,7 @@ class Elasticsearch_Client {
 		$url     = $this->base_url() . $path;
 		$args    = array(
 			'method'  => $method,
-			'timeout' => $this->timeout(),
+			'timeout' => $timeout > 0 ? max( $timeout, $this->timeout() ) : $this->timeout(),
 			'headers' => array_merge(
 				$this->auth_headers(),
 				array( 'Content-Type' => 'application/json' )
@@ -205,7 +295,7 @@ class Elasticsearch_Client {
 		}
 
 		$res = wp_remote_request( $url, $args );
-		return $this->parse_response( $res, $method, $path );
+		return $this->parse_response( $res, $method, $path, $tolerate_codes );
 	}
 
 	/**
@@ -236,7 +326,7 @@ class Elasticsearch_Client {
 	 * @param string $path   For logging.
 	 * @return array|\WP_Error
 	 */
-	protected function parse_response( $res, string $method, string $path ) {
+	protected function parse_response( $res, string $method, string $path, array $tolerate_codes = array() ) {
 		if ( is_wp_error( $res ) ) {
 			$this->logger->error( Logger::CHAN_ELASTIC, 'Falha de transporte ao chamar Elasticsearch.', array(
 				'method'  => $method,
@@ -277,6 +367,16 @@ class Elasticsearch_Client {
 			);
 			if ( '' !== $err_type ) {
 				$short_message .= ' — ' . $err_type;
+			}
+
+			// Some codes are an expected, benign outcome for the caller (e.g. deleting
+			// a document that is already gone). Those must not be logged as errors —
+			// otherwise routine cleanup floods the log and masks real failures.
+			if ( in_array( $code, $tolerate_codes, true ) ) {
+				return array(
+					'tim_tolerated' => true,
+					'code'          => $code,
+				);
 			}
 
 			$this->logger->error( Logger::CHAN_ELASTIC, $short_message, array(

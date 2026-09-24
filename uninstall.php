@@ -7,6 +7,9 @@
 
 defined( 'WP_UNINSTALL_PLUGIN' ) || exit;
 
+// The main plugin file is not loaded on uninstall, and the autoloader needs this.
+defined( 'TAINACAN_INDEX_MANAGER_DIR' ) || define( 'TAINACAN_INDEX_MANAGER_DIR', __DIR__ . '/' );
+
 require_once __DIR__ . '/includes/class-autoloader.php';
 \TainacanIndexManager\Autoloader::register();
 
@@ -18,6 +21,8 @@ delete_option( 'tainacan_idxmgr_queue' );
 delete_option( 'tainacan_idxmgr_failures' );
 delete_option( 'tainacan_idxmgr_indexer_state' );
 delete_option( 'tainacan_idxmgr_metrics' );
+delete_option( \TainacanIndexManager\Search_Vocabulary::OPTION );
+delete_option( \TainacanIndexManager\Traffic_Light::OPTION );
 
 delete_transient( 'tainacan_idxmgr_health_snapshot' );
 delete_transient( 'tainacan_idxmgr_collections_report' );

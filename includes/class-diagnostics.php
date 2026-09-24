@@ -35,7 +35,7 @@ final class Diagnostics {
 	private Indexer $indexer;
 	private Indexer_Metrics $metrics;
 	private Collections_Monitor $collections;
-	private ElasticPress_Integration $elasticpress;
+	private Search_Vocabulary $vocabulary;
 	private Logger $logger;
 
 	public function __construct(
@@ -44,16 +44,16 @@ final class Diagnostics {
 		Indexer $indexer,
 		Indexer_Metrics $metrics,
 		Collections_Monitor $collections,
-		ElasticPress_Integration $elasticpress,
+		Search_Vocabulary $vocabulary,
 		Logger $logger
 	) {
-		$this->settings     = $settings;
-		$this->health       = $health;
-		$this->indexer      = $indexer;
-		$this->metrics      = $metrics;
-		$this->collections  = $collections;
-		$this->elasticpress = $elasticpress;
-		$this->logger       = $logger;
+		$this->settings    = $settings;
+		$this->health      = $health;
+		$this->indexer     = $indexer;
+		$this->metrics     = $metrics;
+		$this->collections = $collections;
+		$this->vocabulary  = $vocabulary;
+		$this->logger      = $logger;
 	}
 
 	/**
@@ -166,37 +166,68 @@ final class Diagnostics {
 
 		/* ---- Cluster ---- */
 
-		if ( 'red' === $snapshot['cluster_status'] ) {
+		// Judge our own index, not the cluster: the same Elasticsearch often carries
+		// indices of other sites and systems (AtoM etc.), whose shards are none of
+		// this panel's business. `index_status` is null before the index exists or
+		// when the call failed, and then the cluster status is all we have.
+		$shard_scope  = null !== ( $snapshot['index_status'] ?? null ) ? 'index' : 'cluster';
+		$shard_status = $snapshot['index_status'] ?? $snapshot['cluster_status'];
+		$nodes        = isset( $snapshot['cluster']['number_of_nodes'] ) ? (int) $snapshot['cluster']['number_of_nodes'] : 0;
+		$unassigned   = 'index' === $shard_scope
+			? (int) ( $snapshot['index_unassigned_shards'] ?? 0 )
+			: (int) ( $snapshot['cluster']['unassigned_shards'] ?? 0 );
+
+		if ( 'red' === $shard_status ) {
 			$findings[] = $this->finding(
 				'critical',
-				__( 'Cluster em estado RED', 'tainacan-index-manager' ),
+				__( 'Índice em estado RED', 'tainacan-index-manager' ),
 				__( 'Um ou mais shards primários não estão alocados. A busca pode estar incompleta ou indisponível.', 'tainacan-index-manager' ),
 				__( 'Verifique o status do cluster com a equipe de infraestrutura e os logs do Elasticsearch antes de continuar a indexar.', 'tainacan-index-manager' ),
 				''
 			);
-		} elseif ( 'yellow' === $snapshot['cluster_status'] ) {
-			$nodes = isset( $snapshot['cluster']['number_of_nodes'] ) ? (int) $snapshot['cluster']['number_of_nodes'] : 0;
+		} elseif ( 'yellow' === $shard_status ) {
 			if ( 1 === $nodes ) {
 				$findings[] = $this->finding(
 					'info',
-					__( 'Cluster YELLOW é esperado em instalação de 1 nó', 'tainacan-index-manager' ),
-					__( 'Com apenas um nó, as réplicas dos shards não têm onde ser alocadas — por isso o status fica amarelo. Em ambiente de produção institucional considere adicionar nós para alta disponibilidade.', 'tainacan-index-manager' ),
+					__( 'YELLOW é esperado em instalação de 1 nó', 'tainacan-index-manager' ),
+					__( 'Com apenas um nó, as réplicas dos shards não têm onde ser alocadas — por isso o status fica amarelo. A busca não é afetada. Para o painel ficar verde, defina number_of_replicas como 0 no índice; em ambiente de produção institucional, considere adicionar nós para alta disponibilidade.', 'tainacan-index-manager' ),
 					'',
 					''
 				);
 			} else {
 				$findings[] = $this->finding(
 					'warning',
-					__( 'Cluster em estado YELLOW', 'tainacan-index-manager' ),
+					__( 'Índice em estado YELLOW', 'tainacan-index-manager' ),
 					sprintf(
 						/* translators: %d = unassigned shards */
 						__( 'Há %d shards não alocados. A busca segue funcional, mas sem redundância.', 'tainacan-index-manager' ),
-						isset( $snapshot['cluster']['unassigned_shards'] ) ? (int) $snapshot['cluster']['unassigned_shards'] : 0
+						$unassigned
 					),
 					__( 'Investigue por que esses shards não estão alocados (disco, configuração de réplicas, nó offline).', 'tainacan-index-manager' ),
 					''
 				);
 			}
+		}
+
+		// The cluster being worse off than our index is worth one line — it is not
+		// a Tainacan problem, but whoever reads this panel is often the person who
+		// will be asked about the red/yellow badge in Elasticsearch itself.
+		if ( 'index' === $shard_scope
+			&& 'green' === $shard_status
+			&& in_array( $snapshot['cluster_status'], array( 'yellow', 'red' ), true )
+		) {
+			$findings[] = $this->finding(
+				'info',
+				__( 'Cluster compartilhado com outros sistemas', 'tainacan-index-manager' ),
+				sprintf(
+					/* translators: %1$s = índice, %2$s = status do cluster */
+					__( 'O índice "%1$s" está íntegro, mas o cluster reporta %2$s — há shards não alocados em índices de outros sites e sistemas (AtoM etc.). Isso não afeta a busca do Tainacan.', 'tainacan-index-manager' ),
+					(string) $snapshot['index_name'],
+					strtoupper( (string) $snapshot['cluster_status'] )
+				),
+				'',
+				''
+			);
 		}
 
 		/* ---- Latency ---- */
@@ -282,23 +313,16 @@ final class Diagnostics {
 			);
 		}
 
-		/* ---- ElasticPress posture (informational only) ---- */
+		/* ---- Search vocabulary (synonyms, variants, corrections) ---- */
 
-		if ( $this->elasticpress->is_active() ) {
+		$vocab = $this->vocabulary->status();
+		if ( $vocab['pending'] ) {
 			$findings[] = $this->finding(
 				'info',
-				__( 'ElasticPress detectado', 'tainacan-index-manager' ),
-				__( 'O ElasticPress está ativo. Este plugin opera em modo somente leitura sobre ele para evitar conflitos de índice.', 'tainacan-index-manager' ),
-				'',
-				''
-			);
-		} else {
-			$findings[] = $this->finding(
-				'info',
-				__( 'Indexador próprio em operação', 'tainacan-index-manager' ),
-				__( 'O ElasticPress não foi detectado — este é um cenário válido. O plugin está usando seu próprio indexador, com mappings otimizados para português brasileiro e adequados a repositórios Tainacan.', 'tainacan-index-manager' ),
-				'',
-				''
+				__( 'Vocabulário da busca com alterações não aplicadas', 'tainacan-index-manager' ),
+				__( 'Há listas de sinônimos, variantes ou correções salvas que ainda não foram enviadas ao Elasticsearch. Enquanto isso, a busca continua usando a versão anterior.', 'tainacan-index-manager' ),
+				__( 'Abra "Vocabulário da busca" e clique em "Aplicar ao Elasticsearch".', 'tainacan-index-manager' ),
+				admin_url( 'admin.php?page=' . Admin_Page::VOCABULARY_SLUG )
 			);
 		}
 

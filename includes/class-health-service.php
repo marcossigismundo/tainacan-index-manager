@@ -65,14 +65,15 @@ final class Health_Service {
 		$snapshot = array(
 			'generated_at'             => time(),
 			'engine_choice'            => (string) $this->settings->get( 'engine' ),
-			'elasticpress_active'      => $this->is_elasticpress_active(),
-			'elasticpress_version'     => $this->get_elasticpress_version(),
 			'es_configured'            => $this->client->is_configured(),
 			'es_reachable'             => false,
 			'es_ping_ms'                => null,
 			'es_version'                => null,
 			'cluster_status'            => null,
 			'cluster'                   => null,
+			'index_status'              => null,
+			'index_unassigned_shards'   => null,
+			'single_node_cluster'       => false,
 			'index_name'                => (string) $this->settings->get( 'index_name' ),
 			'index_exists'              => false,
 			'index_doc_count'           => null,
@@ -84,7 +85,7 @@ final class Health_Service {
 			'fallback_active'           => false,
 			'last_health_check_ts'      => (int) $this->settings->get( 'last_health_check_ts', 0 ),
 			'last_index_run_ts'         => (int) $this->settings->get( 'last_index_run_ts', 0 ),
-			'effective_engine'          => 'sql_fallback',
+			'effective_engine'          => 'sql',
 			'overall_status'            => 'unknown',
 			'overall_message'           => '',
 			'tainacan_active'           => $this->is_tainacan_active(),
@@ -123,17 +124,39 @@ final class Health_Service {
 			);
 		}
 
+		$snapshot['single_node_cluster'] = ( 1 === ( $snapshot['cluster']['number_of_nodes'] ?? 0 ) );
+
 		$exists                   = $this->client->index_exists( $snapshot['index_name'] );
 		$snapshot['index_exists'] = is_bool( $exists ) ? $exists : false;
+
+		// Health of *our* index, which is what this panel is actually about. The
+		// cluster is shared — at IBRAM the same Elasticsearch carries indices of
+		// other sites and systems — so cluster-wide yellow says nothing about
+		// whether Tainacan's search is healthy. Classification below prefers this.
+		if ( $snapshot['index_exists'] ) {
+			$index_health = $this->client->index_health( $snapshot['index_name'] );
+			if ( is_array( $index_health ) && isset( $index_health['status'] ) ) {
+				$snapshot['index_status']            = sanitize_text_field( (string) $index_health['status'] );
+				$snapshot['index_unassigned_shards'] = isset( $index_health['unassigned_shards'] ) ? (int) $index_health['unassigned_shards'] : null;
+			}
+		}
 
 		if ( $snapshot['index_exists'] ) {
 			$stats = $this->client->index_stats( $snapshot['index_name'] );
 			if ( is_array( $stats ) ) {
 				$idx_data = $stats['indices'][ $snapshot['index_name'] ] ?? null;
 				if ( is_array( $idx_data ) ) {
-					$snapshot['index_doc_count']  = isset( $idx_data['total']['docs']['count'] ) ? (int) $idx_data['total']['docs']['count'] : null;
 					$snapshot['index_size_bytes'] = isset( $idx_data['total']['store']['size_in_bytes'] ) ? (int) $idx_data['total']['store']['size_in_bytes'] : null;
 				}
+			}
+
+			// `_stats` reports Lucene documents, which includes one extra document per
+			// `nested` object (metadata/taxonomies). With ~50 metadata per item that
+			// inflates the number ~50x and made coverage read as 5000%+. `_count`
+			// reports actual top-level documents, which is what coverage compares to.
+			$doc_count = $this->client->count( $snapshot['index_name'] );
+			if ( ! is_wp_error( $doc_count ) ) {
+				$snapshot['index_doc_count'] = (int) $doc_count;
 			}
 		}
 
@@ -143,25 +166,25 @@ final class Health_Service {
 		}
 
 		// Decide effective engine.
-		$choice = (string) $this->settings->get( 'engine', 'auto' );
-		if ( 'elasticpress' === $choice && $snapshot['elasticpress_active'] ) {
-			$snapshot['effective_engine'] = 'elasticpress';
-		} elseif ( 'own_indexer' === $choice ) {
-			$snapshot['effective_engine'] = 'own_indexer';
-		} elseif ( 'disabled' === $choice ) {
-			$snapshot['effective_engine'] = 'sql_fallback';
-			$snapshot['fallback_active'] = true;
-		} elseif ( 'auto' === $choice ) {
-			$snapshot['effective_engine'] = $snapshot['elasticpress_active'] ? 'elasticpress' : 'own_indexer';
+		$choice = $this->settings->engine();
+		if ( Settings::ENGINE_SQL === $choice ) {
+			$snapshot['effective_engine'] = 'sql';
+			$snapshot['fallback_active']  = true;
+		} else {
+			$snapshot['effective_engine'] = 'elasticsearch';
 		}
 
-		// Final classification.
-		if ( 'red' === $snapshot['cluster_status'] ) {
+		// Final classification. `shard_status()` already narrows this to our own
+		// index and discounts the single-node yellow, so only a state that really
+		// affects Tainacan's search reaches the site-wide badge.
+		$shard_status = $this->shard_status( $snapshot );
+
+		if ( 'red' === $shard_status ) {
 			$snapshot['overall_status']  = 'critical';
-			$snapshot['overall_message'] = __( 'Cluster em estado RED: ação imediata necessária.', 'tainacan-index-manager' );
-		} elseif ( 'yellow' === $snapshot['cluster_status'] ) {
+			$snapshot['overall_message'] = __( 'Shards primários do índice não alocados: ação imediata necessária.', 'tainacan-index-manager' );
+		} elseif ( 'yellow' === $shard_status ) {
 			$snapshot['overall_status']  = 'warning';
-			$snapshot['overall_message'] = __( 'Cluster em estado YELLOW: shards não totalmente alocados.', 'tainacan-index-manager' );
+			$snapshot['overall_message'] = __( 'Índice em estado YELLOW: shards não totalmente alocados.', 'tainacan-index-manager' );
 		} elseif ( ! $snapshot['index_exists'] ) {
 			$snapshot['overall_status']  = 'warning';
 			$snapshot['overall_message'] = __( 'O índice ainda não foi criado. Inicialize-o em Configurações.', 'tainacan-index-manager' );
@@ -191,6 +214,44 @@ final class Health_Service {
 	}
 
 	/**
+	 * Shard status that actually reflects on Tainacan's search.
+	 *
+	 * Two corrections over reading `_cluster/health` straight:
+	 *
+	 * 1. **Scope.** Prefer the health of the index this plugin manages. The
+	 *    cluster is commonly shared — at IBRAM the same Elasticsearch holds
+	 *    indices of unrelated sites and systems — and a neighbour's unassigned
+	 *    replica used to paint this panel yellow and drag the whole site badge
+	 *    down with it. Only fall back to cluster-wide when we have no index
+	 *    health (index not created yet, or the call failed).
+	 *
+	 * 2. **Single node.** On a one-node cluster, `number_of_replicas >= 1` leaves
+	 *    every replica permanently unassigned, because there is no second node to
+	 *    put it on. That is yellow forever, by construction, with the search fully
+	 *    functional — `Diagnostics` already treats it as info, and this is where
+	 *    that judgement belongs too. Yellow means every *primary* is allocated, so
+	 *    a single node can only be missing replicas; red still passes through.
+	 *
+	 * @param array $snapshot Built snapshot.
+	 * @return string One of 'green', 'yellow', 'red', or '' when unknown.
+	 */
+	private function shard_status( array $snapshot ): string {
+		$status = $snapshot['index_status'] ?? null;
+		if ( null === $status || '' === $status ) {
+			$status = $snapshot['cluster_status'] ?? null;
+		}
+		if ( ! is_string( $status ) || '' === $status ) {
+			return '';
+		}
+
+		if ( 'yellow' === $status && ! empty( $snapshot['single_node_cluster'] ) ) {
+			return 'green';
+		}
+
+		return $status;
+	}
+
+	/**
 	 * Convert WordPress error/snapshot fields into a list of human alerts.
 	 *
 	 * @param array $snapshot Built snapshot.
@@ -207,16 +268,30 @@ final class Health_Service {
 		$this->alerts->clear( 'es_unreachable' );
 		$this->alerts->clear( 'es_not_configured' );
 
-		if ( 'red' === $snapshot['cluster_status'] ) {
-			$this->alerts->raise( 'cluster_red', Alerts::SEV_CRITICAL, __( 'Cluster em estado RED.', 'tainacan-index-manager' ) );
+		$shard_status = $this->shard_status( $snapshot );
+
+		if ( 'red' === $shard_status ) {
+			$this->alerts->raise( 'cluster_red', Alerts::SEV_CRITICAL, __( 'Shards primários do índice não alocados.', 'tainacan-index-manager' ) );
 		} else {
 			$this->alerts->clear( 'cluster_red' );
 		}
 
-		if ( 'yellow' === $snapshot['cluster_status'] ) {
-			$this->alerts->raise( 'cluster_yellow', Alerts::SEV_WARNING, __( 'Cluster em estado YELLOW (shards não totalmente alocados).', 'tainacan-index-manager' ) );
+		if ( 'yellow' === $shard_status ) {
+			$this->alerts->raise( 'cluster_yellow', Alerts::SEV_WARNING, __( 'Índice em estado YELLOW (shards não totalmente alocados).', 'tainacan-index-manager' ) );
+			$this->alerts->clear( 'cluster_yellow_single_node' );
+		} elseif ( 'yellow' === $snapshot['index_status'] && $snapshot['single_node_cluster'] ) {
+			$this->alerts->clear( 'cluster_yellow' );
+			// Benign: a replica with nowhere to go. Say so once, at info level, so
+			// the manager who sees YELLOW in Elasticsearch itself finds the
+			// explanation here instead of opening a ticket.
+			$this->alerts->raise(
+				'cluster_yellow_single_node',
+				Alerts::SEV_INFO,
+				__( 'Índice em YELLOW porque o cluster tem um nó só: as réplicas não têm onde ser alocadas. A busca não é afetada.', 'tainacan-index-manager' )
+			);
 		} else {
 			$this->alerts->clear( 'cluster_yellow' );
+			$this->alerts->clear( 'cluster_yellow_single_node' );
 		}
 
 		if ( null !== $snapshot['divergence_pct'] && $snapshot['divergence_pct'] > $snapshot['divergence_threshold_pct'] ) {
@@ -255,13 +330,18 @@ final class Health_Service {
 	public function count_tainacan_items(): int {
 		if ( class_exists( '\\Tainacan\\Repositories\\Items' ) ) {
 			try {
-				$repo  = call_user_func( array( '\\Tainacan\\Repositories\\Items', 'get_instance' ) );
-				$query = $repo->fetch( array(
-					'post_status'    => array( 'publish', 'private', 'draft' ),
-					'posts_per_page' => 1,
-					'fields'         => 'ids',
-					'no_found_rows'  => false,
-				) );
+				// Must come from the database. This count is the reference the index
+				// is measured against, so routing it through ES would make coverage
+				// compare the index with itself and always report 100%.
+				$query = Search_Integration::without_routing( static function () {
+					$repo = call_user_func( array( '\\Tainacan\\Repositories\\Items', 'get_instance' ) );
+					return $repo->fetch( array(
+						'post_status'    => array( 'publish', 'private', 'draft' ),
+						'posts_per_page' => 1,
+						'fields'         => 'ids',
+						'no_found_rows'  => false,
+					) );
+				} );
 				if ( is_object( $query ) && property_exists( $query, 'found_posts' ) ) {
 					return (int) $query->found_posts;
 				}
@@ -314,14 +394,4 @@ final class Health_Service {
 		return defined( 'TAINACAN_VERSION' ) || class_exists( '\\Tainacan\\Theme_Helper' ) || class_exists( '\\Tainacan\\Repositories\\Items' );
 	}
 
-	public function is_elasticpress_active(): bool {
-		return defined( 'EP_VERSION' ) || class_exists( '\\ElasticPress\\Elasticsearch' );
-	}
-
-	public function get_elasticpress_version(): ?string {
-		if ( defined( 'EP_VERSION' ) ) {
-			return (string) EP_VERSION;
-		}
-		return null;
-	}
 }

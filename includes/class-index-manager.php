@@ -37,44 +37,26 @@ final class Index_Manager {
 	 * Build the index body (settings + mappings) tuned for PT-BR Tainacan items.
 	 */
 	public function index_definition(): array {
+		// The search-side analyzer carries the vocabulary (synonyms, variants,
+		// corrections, ignored words) last applied from "Vocabulário da busca", so a
+		// recreated index keeps it. The index-side analyzer never changes with it:
+		// that is what lets new vocabulary take effect without reindexing.
+		$vocabulary = Search_Vocabulary::search_analysis( Search_Vocabulary::applied() );
+
 		return array(
 			'settings' => array(
 				'number_of_shards'   => 1,
 				'number_of_replicas' => 0,
 				'analysis'           => array(
-					'filter' => array(
-						'brazilian_stop' => array(
-							'type'      => 'stop',
-							'stopwords' => '_brazilian_',
-						),
-						'brazilian_stemmer' => array(
-							'type'     => 'stemmer',
-							'language' => 'brazilian',
-						),
-						'asciifolding_preserve' => array(
-							'type'              => 'asciifolding',
-							'preserve_original' => true,
-						),
-					),
-					'analyzer' => array(
-						'tnc_pt_br' => array(
-							'tokenizer' => 'standard',
-							'filter'    => array(
-								'lowercase',
-								'asciifolding_preserve',
-								'brazilian_stop',
-								'brazilian_stemmer',
+					'filter'   => array_merge( self::base_filters(), $vocabulary['filter'] ),
+					'analyzer' => array_merge(
+						array(
+							'tnc_pt_br' => array(
+								'tokenizer' => 'standard',
+								'filter'    => self::base_chain(),
 							),
 						),
-						'tnc_pt_br_search' => array(
-							'tokenizer' => 'standard',
-							'filter'    => array(
-								'lowercase',
-								'asciifolding_preserve',
-								'brazilian_stop',
-								'brazilian_stemmer',
-							),
-						),
+						$vocabulary['analyzer']
 					),
 				),
 			),
@@ -114,6 +96,9 @@ final class Index_Manager {
 						'type'       => 'nested',
 						'properties' => array(
 							'slug'  => array( 'type' => 'keyword' ),
+							// Term IDs are what Tainacan's tax_query filters on;
+							// without them facet/filter translation is impossible.
+							'term_ids' => array( 'type' => 'long' ),
 							'terms' => array(
 								'type'   => 'text',
 								'fields' => array(
@@ -126,6 +111,11 @@ final class Index_Manager {
 						'type'       => 'nested',
 						'properties' => array(
 							'slug'  => array( 'type' => 'keyword' ),
+							// Tainacan's meta_query keys are metadatum IDs, not slugs.
+							'metadatum_id' => array( 'type' => 'long' ),
+							// Term/item IDs behind Taxonomy and Relationship metadata,
+							// used for facet aggregations and filter translation.
+							'value_ids'    => array( 'type' => 'long' ),
 							'label' => array( 'type' => 'keyword' ),
 							'value_text' => array(
 								'type'            => 'text',
@@ -141,6 +131,36 @@ final class Index_Manager {
 				),
 			),
 		);
+	}
+
+	/**
+	 * Token filters every index of this plugin defines.
+	 */
+	public static function base_filters(): array {
+		return array(
+			'brazilian_stop' => array(
+				'type'      => 'stop',
+				'stopwords' => '_brazilian_',
+			),
+			'brazilian_stemmer' => array(
+				'type'     => 'stemmer',
+				'language' => 'brazilian',
+			),
+			'asciifolding_preserve' => array(
+				'type'              => 'asciifolding',
+				'preserve_original' => true,
+			),
+		);
+	}
+
+	/**
+	 * Filter chain of the index-time analyzer (`tnc_pt_br`), and of the search
+	 * analyzer while no vocabulary is applied.
+	 *
+	 * @return string[]
+	 */
+	public static function base_chain(): array {
+		return array( 'lowercase', 'asciifolding_preserve', 'brazilian_stop', 'brazilian_stemmer' );
 	}
 
 	/**

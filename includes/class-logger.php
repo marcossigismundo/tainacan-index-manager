@@ -34,7 +34,7 @@ final class Logger {
 	public const CHAN_REST        = 'rest';
 	public const CHAN_CRON        = 'cron';
 	public const CHAN_ELASTIC     = 'elastic';
-	public const CHAN_ELASTICPRSS = 'elasticpress';
+	public const CHAN_VOCABULARY  = 'vocabulary';
 	public const CHAN_ALERT       = 'alert';
 
 	/**

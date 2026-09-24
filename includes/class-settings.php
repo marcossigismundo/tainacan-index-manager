@@ -23,12 +23,54 @@ final class Settings {
 		$this->cache = self::all();
 	}
 
+	/** Queries are answered from the Elasticsearch index this plugin maintains. */
+	public const ENGINE_ELASTICSEARCH = 'elasticsearch';
+
+	/** No routing: WordPress answers everything from the database. */
+	public const ENGINE_SQL = 'sql';
+
+	/**
+	 * Reduce any stored engine value to one of the two supported modes.
+	 *
+	 * Earlier versions offered more values, which described *who builds the
+	 * index* rather than *which engine answers the query* — a distinction that
+	 * reliably confused people. Anything that is not explicitly SQL means
+	 * "search served by Elasticsearch".
+	 *
+	 * Legacy values are mapped here rather than in the sanitizer alone, so a
+	 * stored value keeps working without waiting for the option to be rewritten.
+	 *
+	 * @param mixed $value Raw stored value.
+	 */
+	public static function normalize_engine( $value ): string {
+		$value = is_string( $value ) ? strtolower( trim( $value ) ) : '';
+
+		switch ( $value ) {
+			case self::ENGINE_SQL:
+			case 'disabled':
+				return self::ENGINE_SQL;
+
+			case self::ENGINE_ELASTICSEARCH:
+			case 'own_indexer':
+			case 'auto':
+			default:
+				return self::ENGINE_ELASTICSEARCH;
+		}
+	}
+
+	/**
+	 * The engine actually in force, with legacy values already normalized.
+	 */
+	public function engine(): string {
+		return self::normalize_engine( $this->get( 'engine', self::ENGINE_ELASTICSEARCH ) );
+	}
+
 	/**
 	 * Return defaults for every setting key the plugin understands.
 	 */
 	public static function defaults(): array {
 		return array(
-			'engine'                    => 'auto',
+			'engine'                    => self::ENGINE_ELASTICSEARCH,
 			'es_url'                    => '',
 			'es_username'               => '',
 			'es_password'               => '',
@@ -45,7 +87,17 @@ final class Settings {
 			'alert_email_address'       => '',
 			'alert_dashboard_enabled'   => true,
 			'fallback_enabled'          => true,
+			'route_item_lists'          => true,
+			'route_facets'              => true,
+			'facet_max_terms'           => 300,
 			'log_retention_days'        => 30,
+			// Where the panel lives in Tainacan's admin sidebar: under "Outros"
+			// (the default, alongside the other maintenance tools) or in the root menu.
+			'menu_location'             => 'other',
+			// Accept one or two wrong letters in free-text search (ES fuzziness AUTO).
+			'search_typo_tolerance'     => false,
+			// Complete the last word when it was typed incomplete ("fotogr" → fotografia).
+			'search_prefix'             => true,
 			'last_index_run_ts'         => 0,
 			'last_health_check_ts'      => 0,
 		);
@@ -104,7 +156,14 @@ final class Settings {
 	 */
 	public function update( array $partial ): bool {
 		$defaults = self::defaults();
-		$current  = $this->cache;
+
+		// Re-read instead of trusting the in-memory copy. This object may have been
+		// constructed early in the request — or in a long-lived process — and the
+		// whole array is written back below, so a stale copy silently reverts every
+		// key that changed in the meantime. That is not theoretical: a cron tick
+		// stamping `last_index_run_ts` was reverting `engine` and `index_name` to
+		// whatever they were when its Settings instance was built.
+		$current = self::all();
 
 		// Pre-process es_url for inline credentials before normal sanitization.
 		if ( isset( $partial['es_url'] ) && is_string( $partial['es_url'] ) && '' !== trim( $partial['es_url'] ) ) {
@@ -142,9 +201,7 @@ final class Settings {
 	private function sanitize_value( string $key, $v ) {
 		switch ( $key ) {
 			case 'engine':
-				$allowed = array( 'auto', 'elasticpress', 'own_indexer', 'disabled' );
-				$v       = is_string( $v ) ? strtolower( $v ) : 'auto';
-				return in_array( $v, $allowed, true ) ? $v : 'auto';
+				return self::normalize_engine( $v );
 
 			case 'es_url':
 				return esc_url_raw( is_string( $v ) ? trim( $v ) : '' );
@@ -182,11 +239,21 @@ final class Settings {
 				$v       = is_string( $v ) ? $v : 'hourly';
 				return in_array( $v, $allowed, true ) ? $v : 'hourly';
 
+			case 'menu_location':
+				return 'root' === $v ? 'root' : 'other';
+
+			case 'search_typo_tolerance':
+			case 'search_prefix':
 			case 'auto_indexing_enabled':
 			case 'alert_email_enabled':
 			case 'alert_dashboard_enabled':
 			case 'fallback_enabled':
+			case 'route_item_lists':
+			case 'route_facets':
 				return (bool) $v;
+
+			case 'facet_max_terms':
+				return max( 10, min( 5000, (int) $v ) );
 
 			case 'last_index_run_ts':
 			case 'last_health_check_ts':

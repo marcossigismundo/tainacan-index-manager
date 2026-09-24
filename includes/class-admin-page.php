@@ -5,11 +5,12 @@
  * Two integration paths:
  *
  * 1) Tainacan 1.0.0+ is present (\Tainacan\Pages exists):
- *    we load the two \Tainacan\TIM_*_Page classes (Dashboard + Settings).
- *    Both extend \Tainacan\Pages, get rendered inside Tainacan's native
- *    page chrome (sidebar + header + theme), and register themselves
- *    in the Tainacan admin sidebar via add_submenu_page() under
- *    $tainacan_root_menu_slug / $tainacan_other_links_slug.
+ *    we load the three \Tainacan\TIM_*_Page classes (Dashboard, Vocabulary,
+ *    Settings). They extend \Tainacan\Pages, get rendered inside Tainacan's
+ *    native page chrome (sidebar + header + theme), and register themselves
+ *    in the Tainacan admin sidebar via add_submenu_page() — by default under
+ *    "Outros" ($tainacan_other_links_slug); the `menu_location` setting can
+ *    move the panel to the root menu instead.
  *
  * 2) Tainacan is absent or pre-1.0.0:
  *    we fall back to a standalone top-level menu. The plugin still works,
@@ -24,8 +25,9 @@ defined( 'ABSPATH' ) || exit;
 
 final class Admin_Page {
 
-	public const DASHBOARD_SLUG = 'tainacan_idxmgr_dashboard';
-	public const SETTINGS_SLUG  = 'tainacan_idxmgr_settings';
+	public const DASHBOARD_SLUG  = 'tainacan_idxmgr_dashboard';
+	public const VOCABULARY_SLUG = 'tainacan_idxmgr_vocabulary';
+	public const SETTINGS_SLUG   = 'tainacan_idxmgr_settings';
 
 	private Settings $settings;
 	private Health_Service $health;
@@ -40,10 +42,13 @@ final class Admin_Page {
 	}
 
 	public function register(): void {
+		add_action( 'admin_head', array( __CLASS__, 'print_menu_dot_style' ) );
+
 		if ( $this->tainacan_pages_available() ) {
 			// Tainacan 1.0.0+ — load native page classes. They self-register via Singleton_Instance.
 			try {
 				require_once TAINACAN_INDEX_MANAGER_DIR . 'includes/tainacan-pages/class-dashboard-page.php';
+				require_once TAINACAN_INDEX_MANAGER_DIR . 'includes/tainacan-pages/class-vocabulary-page.php';
 				require_once TAINACAN_INDEX_MANAGER_DIR . 'includes/tainacan-pages/class-settings-page.php';
 				return;
 			} catch ( \Throwable $e ) {
@@ -96,7 +101,7 @@ final class Admin_Page {
 	/**
 	 * JS config passed to the Vue SPA. Shared between Tainacan and fallback paths.
 	 *
-	 * @param string $view 'dashboard' or 'settings'.
+	 * @param string $view 'dashboard', 'vocabulary' or 'settings'.
 	 */
 	public static function js_config( string $view ): array {
 		return array(
@@ -105,56 +110,17 @@ final class Admin_Page {
 			'pluginUrl'  => esc_url_raw( TAINACAN_INDEX_MANAGER_URL ),
 			'view'       => $view,
 			'dashUrl'    => esc_url_raw( admin_url( 'admin.php?page=' . self::DASHBOARD_SLUG ) ),
+			'vocabularyUrl' => esc_url_raw( admin_url( 'admin.php?page=' . self::VOCABULARY_SLUG ) ),
 			'settingsUrl' => esc_url_raw( admin_url( 'admin.php?page=' . self::SETTINGS_SLUG ) ),
 			'tainacanIntegrated' => class_exists( '\\Tainacan\\Pages' ),
 			'i18n'       => self::i18n_strings(),
 		);
 	}
 
-	/* --------- Fallback path (Tainacan absent) --------- */
-
-	public function register_fallback_menu(): void {
-		add_menu_page(
-			__( 'Gestão da Indexação', 'tainacan-index-manager' ),
-			__( 'Gestão da Indexação', 'tainacan-index-manager' ),
-			'manage_options',
-			self::DASHBOARD_SLUG,
-			array( $this, 'render_fallback_dashboard' ),
-			'dashicons-chart-line',
-			58
-		);
-		add_submenu_page(
-			self::DASHBOARD_SLUG,
-			__( 'Configurações de Indexação', 'tainacan-index-manager' ),
-			__( 'Configurações', 'tainacan-index-manager' ),
-			'manage_options',
-			self::SETTINGS_SLUG,
-			array( $this, 'render_fallback_settings' )
-		);
-	}
-
-	public function render_fallback_dashboard(): void {
-		echo '<div class="wrap tainacan-idxmgr-wrap is-standalone">';
-		echo '<h1 class="tim-title">' . esc_html__( 'Gestão da Indexação', 'tainacan-index-manager' ) . '</h1>';
-		echo '<div id="tainacan-idxmgr-app" data-view="dashboard"></div>';
-		echo '</div>';
-	}
-
-	public function render_fallback_settings(): void {
-		echo '<div class="wrap tainacan-idxmgr-wrap is-standalone">';
-		echo '<h1 class="tim-title">' . esc_html__( 'Configurações de Indexação', 'tainacan-index-manager' ) . '</h1>';
-		echo '<div id="tainacan-idxmgr-app" data-view="settings"></div>';
-		echo '</div>';
-	}
-
-	public function enqueue_fallback_assets( string $hook ): void {
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only admin page-slug check; no state mutation.
-		$page = isset( $_GET['page'] ) ? sanitize_text_field( wp_unslash( $_GET['page'] ) ) : '';
-		if ( ! in_array( $page, array( self::DASHBOARD_SLUG, self::SETTINGS_SLUG ), true ) ) {
-			return;
-		}
-		$view = self::SETTINGS_SLUG === $page ? 'settings' : 'dashboard';
-
+	/**
+	 * Enqueue CSS + Vue + the SPA for one view. Used by every page, Tainacan or not.
+	 */
+	public static function enqueue_assets( string $view ): void {
 		wp_enqueue_style(
 			'tainacan-idxmgr-admin',
 			TAINACAN_INDEX_MANAGER_URL . 'assets/css/admin.css',
@@ -178,7 +144,117 @@ final class Admin_Page {
 		wp_localize_script( 'tainacan-idxmgr-admin', 'TIMConfig', self::js_config( $view ) );
 		wp_enqueue_script( 'tainacan-idxmgr-vue' );
 		wp_enqueue_script( 'tainacan-idxmgr-admin' );
-		wp_set_script_translations( 'tainacan-idxmgr-admin', 'tainacan-index-manager' );
+	}
+
+	/**
+	 * Parent menu for the panel pages inside Tainacan's sidebar.
+	 *
+	 * "Outros" by default: the panel is a maintenance tool, like the importers
+	 * and exporters that already live there. The root menu is an opt-in.
+	 *
+	 * @param object $page A \Tainacan\Pages subclass (exposes the two slugs).
+	 */
+	public static function tainacan_parent_slug( $page ): string {
+		$all = Settings::all();
+		if ( 'root' === ( $all['menu_location'] ?? 'other' ) && ! empty( $page->tainacan_root_menu_slug ) ) {
+			return (string) $page->tainacan_root_menu_slug;
+		}
+		return (string) $page->tainacan_other_links_slug;
+	}
+
+	/**
+	 * Menu label with the status light's last colour as a small dot.
+	 *
+	 * Reads the remembered colour only — building the admin menu must never wait
+	 * on Elasticsearch.
+	 */
+	public static function menu_label_with_light( string $icon_svg, string $text ): string {
+		$light = Traffic_Light::remembered();
+		$color = $light ? $light['color'] : 'unknown';
+		$title = $light ? $light['title'] : __( 'Ainda não verificado', 'tainacan-index-manager' );
+
+		return '<span class="icon">' . $icon_svg . '</span>'
+			. '<span class="menu-text">' . esc_html( $text )
+			. ' <span class="tim-menu-dot is-' . esc_attr( $color ) . '" title="' . esc_attr( $title ) . '" aria-label="' . esc_attr( $title ) . '"></span>'
+			. '</span>';
+	}
+
+	/**
+	 * Tiny inline style for the menu dot, printed on every admin page (the menu
+	 * is everywhere, the plugin stylesheet is not).
+	 */
+	public static function print_menu_dot_style(): void {
+		echo '<style id="tim-menu-dot">'
+			. '.tim-menu-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-left:4px;vertical-align:middle;background:#9aa0a6}'
+			. '.tim-menu-dot.is-green{background:#2ec27e;box-shadow:0 0 5px #2ec27e}'
+			. '.tim-menu-dot.is-yellow{background:#f5c211;box-shadow:0 0 5px #f5c211}'
+			. '.tim-menu-dot.is-red{background:#e01b24;box-shadow:0 0 5px #e01b24}'
+			. '</style>';
+	}
+
+	/* --------- Fallback path (Tainacan absent) --------- */
+
+	public function register_fallback_menu(): void {
+		add_menu_page(
+			__( 'Gestão da Indexação', 'tainacan-index-manager' ),
+			__( 'Gestão da Indexação', 'tainacan-index-manager' ),
+			'manage_options',
+			self::DASHBOARD_SLUG,
+			array( $this, 'render_fallback_dashboard' ),
+			'dashicons-chart-line',
+			58
+		);
+		add_submenu_page(
+			self::DASHBOARD_SLUG,
+			__( 'Vocabulário da busca', 'tainacan-index-manager' ),
+			__( 'Vocabulário da busca', 'tainacan-index-manager' ),
+			'manage_options',
+			self::VOCABULARY_SLUG,
+			array( $this, 'render_fallback_vocabulary' )
+		);
+		add_submenu_page(
+			self::DASHBOARD_SLUG,
+			__( 'Configurações de Indexação', 'tainacan-index-manager' ),
+			__( 'Configurações', 'tainacan-index-manager' ),
+			'manage_options',
+			self::SETTINGS_SLUG,
+			array( $this, 'render_fallback_settings' )
+		);
+	}
+
+	public function render_fallback_dashboard(): void {
+		echo '<div class="wrap tainacan-idxmgr-wrap is-standalone">';
+		echo '<h1 class="tim-title">' . esc_html__( 'Gestão da Indexação', 'tainacan-index-manager' ) . '</h1>';
+		echo '<div id="tainacan-idxmgr-app" data-view="dashboard"></div>';
+		echo '</div>';
+	}
+
+	public function render_fallback_vocabulary(): void {
+		echo '<div class="wrap tainacan-idxmgr-wrap is-standalone">';
+		echo '<h1 class="tim-title">' . esc_html__( 'Vocabulário da busca', 'tainacan-index-manager' ) . '</h1>';
+		echo '<div id="tainacan-idxmgr-app" data-view="vocabulary"></div>';
+		echo '</div>';
+	}
+
+	public function render_fallback_settings(): void {
+		echo '<div class="wrap tainacan-idxmgr-wrap is-standalone">';
+		echo '<h1 class="tim-title">' . esc_html__( 'Configurações de Indexação', 'tainacan-index-manager' ) . '</h1>';
+		echo '<div id="tainacan-idxmgr-app" data-view="settings"></div>';
+		echo '</div>';
+	}
+
+	public function enqueue_fallback_assets( string $hook ): void {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only admin page-slug check; no state mutation.
+		$page = isset( $_GET['page'] ) ? sanitize_text_field( wp_unslash( $_GET['page'] ) ) : '';
+		$views = array(
+			self::DASHBOARD_SLUG  => 'dashboard',
+			self::VOCABULARY_SLUG => 'vocabulary',
+			self::SETTINGS_SLUG   => 'settings',
+		);
+		if ( ! isset( $views[ $page ] ) ) {
+			return;
+		}
+		self::enqueue_assets( $views[ $page ] );
 	}
 
 	public function render_compat_notice(): void {
@@ -202,6 +278,7 @@ final class Admin_Page {
 	private static function i18n_strings(): array {
 		return array(
 			'dashboard'          => __( 'Gestão da Indexação', 'tainacan-index-manager' ),
+			'vocabulary'         => __( 'Vocabulário da busca', 'tainacan-index-manager' ),
 			'settings'           => __( 'Configurações de Indexação', 'tainacan-index-manager' ),
 			'logs'               => __( 'Logs', 'tainacan-index-manager' ),
 			'alerts'             => __( 'Alertas', 'tainacan-index-manager' ),
@@ -218,10 +295,8 @@ final class Admin_Page {
 			'last_check'         => __( 'Última verificação', 'tainacan-index-manager' ),
 			'last_index'         => __( 'Última indexação', 'tainacan-index-manager' ),
 			'effective_engine'   => __( 'Mecanismo ativo', 'tainacan-index-manager' ),
-			'elasticpress'       => __( 'ElasticPress', 'tainacan-index-manager' ),
-			'own_indexer'        => __( 'Indexador próprio', 'tainacan-index-manager' ),
-			'sql_fallback'       => __( 'Fallback SQL', 'tainacan-index-manager' ),
-			'engine_disabled'    => __( 'Desativado', 'tainacan-index-manager' ),
+			'engine_elasticsearch' => __( 'Elasticsearch', 'tainacan-index-manager' ),
+			'engine_sql'           => __( 'SQL', 'tainacan-index-manager' ),
 			'refresh'            => __( 'Atualizar', 'tainacan-index-manager' ),
 			'test_connection'    => __( 'Testar conexão', 'tainacan-index-manager' ),
 			'create_index'       => __( 'Criar índice', 'tainacan-index-manager' ),
@@ -241,7 +316,6 @@ final class Admin_Page {
 			'connection_ok'      => __( 'Conexão OK', 'tainacan-index-manager' ),
 			'connection_failed'  => __( 'Falha na conexão', 'tainacan-index-manager' ),
 			'never'              => __( 'Nunca', 'tainacan-index-manager' ),
-			'sync_now'           => __( 'Sincronizar agora', 'tainacan-index-manager' ),
 			'throughput'         => __( 'Itens/segundo', 'tainacan-index-manager' ),
 			'eta'                => __( 'Tempo restante estimado', 'tainacan-index-manager' ),
 			'success_rate'       => __( 'Taxa de sucesso', 'tainacan-index-manager' ),

@@ -1,0 +1,36 @@
+# Garante line endings consistentes para arquivos do projeto.
+# Sem isto, com core.autocrlf=true o `git archive` sai em CRLF e o pacote
+# deixa de bater byte a byte com os blobs do repositório na verificação de deploy.
+* text=auto eol=lf
+
+# Forçar LF em arquivos textuais
+*.php   text eol=lf
+*.js    text eol=lf
+*.css   text eol=lf
+*.md    text eol=lf
+*.txt   text eol=lf
+*.pot   text eol=lf
+*.po    text eol=lf
+*.json  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.dist  text eol=lf
+
+# Binários — não alterar EOL
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.svg   binary
+*.ico   binary
+*.zip   binary
+*.mo    binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+
+# === Export-ignore ===
+# Não entram no pacote gerado por `git archive`
+/.git*          export-ignore
+/phpcs.xml.dist export-ignore
+/README.md      export-ignore

@@ -30,13 +30,15 @@ final class Cron {
 	private Indexer $indexer;
 	private Collections_Monitor $collections;
 	private Logger $logger;
+	private Traffic_Light $light;
 
-	public function __construct( Settings $settings, Health_Service $health, Indexer $indexer, Collections_Monitor $collections, Logger $logger ) {
+	public function __construct( Settings $settings, Health_Service $health, Indexer $indexer, Collections_Monitor $collections, Logger $logger, Traffic_Light $light ) {
 		$this->settings    = $settings;
 		$this->health      = $health;
 		$this->indexer     = $indexer;
 		$this->collections = $collections;
 		$this->logger      = $logger;
+		$this->light       = $light;
 	}
 
 	public function register(): void {
@@ -108,6 +110,9 @@ final class Cron {
 	public function run_health_tick(): void {
 		$snapshot = $this->health->refresh_snapshot();
 		$this->collections->invalidate();
+		// Keeps the coloured dot in the admin menu current without anyone
+		// opening the panel. Uses the snapshot just built, no extra ES calls.
+		$this->light->evaluate();
 		// Single combined log entry per tick — health channel carries the
 		// useful columns (cluster status, latency) and a small context blob,
 		// so we don't need a separate cron-channel "tick" line.

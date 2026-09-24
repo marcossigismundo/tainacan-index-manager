@@ -1,0 +1,27 @@
+# Palavras ignoradas pela busca — brasiliana3
+# Gerado em 24/09/2026 a partir dos 74.124 itens publicados.
+# Uma palavra por linha. Linhas que começam com # são comentários e não têm efeito.
+#
+# Estas palavras são pedaços de endereços de internet (https://acervos.museus.gov.br/...)
+# que estão guardados como texto em quase todos os itens. Ninguém as busca, e elas
+# fazem a busca por "br" ou "gov" devolver o acervo inteiro.
+#
+# https: em 74.123 itens (100.0%)
+https
+# gov: em 71.026 itens (95.8%)
+gov
+# br: em 73.913 itens (99.7%)
+br
+
+# ---------------------------------------------------------------------------
+# NÃO recomendadas (deixadas como comentário de propósito):
+# são muito frequentes, mas quem buscar só uma delas deixaria de encontrar qualquer item.
+#   museu — em 96% dos itens
+#   acervo — em 88% dos itens
+#   acervos — em 94% dos itens
+#   museus — em 83% dos itens
+#   museológico — em 60% dos itens
+#   histórico — em 41% dos itens
+#   nacional — em 35% dos itens
+# O texto padrão de direitos ("reprodução proibida para fins comerciais...") também aparece
+# em 9% a 20% dos itens. O certo é deixar de indexar esse campo como texto, não ignorar as palavras.

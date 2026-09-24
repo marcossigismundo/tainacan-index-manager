@@ -1,0 +1,638 @@
+# Grafias antigas e variantes — brasiliana3
+# Gerado em 24/09/2026 a partir dos 74.124 itens publicados. Uma equivalência por linha.
+# A primeira forma é a atual; as seguintes são as grafias encontradas nos registros.
+# Quem buscar qualquer uma encontra os itens escritos com as outras.
+# Linhas que começam com # são comentários e não têm efeito: para ativar uma, apague o #.
+
+# === 1. Ortografia antiga de palavras comuns (424 regras) ===
+# A forma antiga não está no dicionário e a forma atual está. Ex.: thesouro → tesouro.
+otoni, ottoni
+tesouro, thesouro
+elétrica, eléctrica
+aimoré, aymoré
+sales, salle
+rodolfo, rodolpho
+afonso, affonso
+teatro, theatro
+cristiano, christiano
+viana, vianna
+preto, pretto
+brito, britto
+mato, matto
+adelfo, adelpho
+lutero, luthero
+benedito, benedicto
+tele, telles
+oferece, offerece
+estrela, estrella
+comércio, commercio
+fotografia, photographia, photografia
+murici, muricy
+rosental, rosenthal
+araci, aracy
+loiola, loyola
+cristofle, christofle
+castelo, castello
+oferecido, offerecido
+copel, coppel
+teófilo, theophilo
+gilete, gillete, gillette
+comissão, commissão
+bela, bella
+distrito, districto
+oferecem, offerecem
+selada, sellada
+raimundo, raymundo
+teodoro, theodoro
+veloso, velloso
+felipe, fellipe, felippe, phelippe
+sexteto, sextetto
+ofereço, offereço
+mucuri, mucury
+coleção, colecção
+letícia, letycia
+cristóvão, christovão
+rabelo, rabello
+guarani, guarany
+bocaiuva, bocayuva
+boiaca, boyaca
+vazado, vasado
+moisés, moysé
+bruxeles, bruxelles
+oferta, offerta
+catete, cattete
+república, republlica, reppublica, repubblica
+órfão, orphão
+colégio, collegio
+walter, walther
+fotógrafo, photographo
+batista, battista
+oficina, officina, oficcina
+euclides, euclydes
+selo, sello
+fósforo, phosphoro
+holanda, hollanda
+aniversário, anniversario
+asilo, asylo
+bartolomeu, bartholomeu
+cabelo, cabellos
+carolo, carôllo
+estefanio, estephanio
+vilaverde, villaverde
+olímpio, olympio
+grilo, grillo
+ciência, sciencia
+diretoria, directoria
+rebelo, rebello
+vilela, villela
+curitiba, curityba
+comemoração, comemmoração, commemoração
+colares, collares
+bitar, bittar
+filipe, phillipe, phillippe
+uruguaia, uruguaya
+santana, santanna
+arquitetura, arquitectura
+reino, reyno
+gular, gullar
+saboia, saboya
+pacari, pacary
+otelia, othélia
+otelo, othelo
+azulai, azulay
+pitangui, pitanguy
+oferecemos, offerecemos
+ensaio, ensayo
+trompete, trompettes
+bateria, batteria
+casela, casella
+excelência, excellencia
+acordo, accôrdo
+junta, juncta
+cristo, christo
+jacinto, jacintho
+anualmente, annualmente
+emitida, emittida
+tesoureiro, thesoureiro
+telégrafo, telegraphos
+anexo, annexo
+localização, localisação
+geográfico, geographico
+comemorando, commemorando
+asilados, asylados
+alemã, allemã
+aparelho, apparelhos
+cavaleiro, cavalleiro
+comemorativa, commemorativa
+tupinambá, tupynambá
+excelente, excellente
+rolei, rollei
+santo, sancto
+litografia, lithografia
+mariano, marianno
+jurupari, jurupary
+tímpano, tympano
+clarinete, clarinette
+clarineta, clarinettas
+catulo, catullo
+santelo, santello
+calaza, callaza
+realizado, realisado
+legenda, legendda, llegenda
+ofício, officio
+crisanto, chrysantho
+lila, llilás
+parte, partte
+caninha, canninha
+produto, productos
+anunciado, annunciado
+escritório, escriptorios
+gráfica, graphicas
+manufatura, manufactura
+sindicato, syndicato
+funcionário, funccionário
+absinto, absyntho
+sinfonico, synphonicos
+oliveira, olliveira, oliveyra
+cavalo, cavallo
+vitorino, victorino
+adicional, addicional
+coleções, colleções, colecções
+entusiasmo, enthusiasmo
+ereta, erecta
+portela, portella
+dicionário, diccionário
+autores, auctores
+elétrico, electricos
+paraguaia, paraguaya
+goiás, goya
+egídio, egydio
+haler, haller
+matar, mattar
+ilustrada, illustrada
+instrução, instrucção
+suplemento, supplemento
+falecido, fallecido
+proteção, protecção
+síntese, synthése
+acessório, accessório
+seninha, senninha
+toilete, toillete
+sagio, saggio
+pena, penna
+caraia, carayá
+selins, sellins
+bienais, biennais
+bonete, bonnete
+moreto, moretto
+lotar, lothar
+piloto, pilotto
+antonieta, antonietta
+falar, fallar
+capelista, capellista
+ilusão, illusão
+clarineto, clarinetto
+vazio, vasio
+filósofo, philosophos
+apolinário, appolinário
+tuiuca, tuyuca
+concêntrico, concênctricos
+trapezoidal, trapesoidal
+secção, seccção
+oculta, occulta
+olinto, olintho
+branca, brancca
+tradição, tradicção
+lidio, lydio
+inspetoria, inspectoria
+sírio, syrio
+linguafone, linguaphone
+eletricidade, electricidade
+profeta, prophetas
+santa, sancta
+permita, permittas
+espaldar, espalldar
+oferecer, offerecer
+típico, typico
+silvino, sylvino
+colapso, collapso
+farmaceutico, pharmaceutico
+soberana, soberanna
+mola, mollas
+orfeônico, orpheonico
+legada, llegada
+festival, festivall
+atualmente, actualmente
+beleza, belleza
+alegreto, allegreto
+simbólica, symbolica
+cópia, coppia
+vitória, vittoria
+identificação, identifficação
+tema, themas
+assirio, assyrio
+cisne, cysne
+barítono, barytono
+redução, reducção
+afeto, afecto
+medalha, medallha
+violeta, violetta
+emidio, emydio
+colega, collega
+simpatia, sympatia
+coríntia, corinthias
+milho, millho
+ditadura, dictadura
+sindicalizado, syndicalizados
+construtores, constructores
+instalação, installação
+diretora, directora
+colocação, collocação
+diretores, directores
+alencar, allencar
+liceu, lyceu
+teixeira, teyxeira
+acidente, accidentes
+encomenda, encommenda
+meriti, merity
+travessa, ttravessa
+distinto, distincto
+estado, estaddo
+listéis, llistéis
+projetada, projectada
+oficiais, officiais
+balé, balles
+símbolo, symbolo
+sofrestes, soffrestes
+aliança, alliança
+escritura, escriptura
+regozijo, regosijo
+atividade, actividade
+crisóstomo, chrisostomo
+emitido, emittido
+inscrito, inscripto
+amortização, amortisação
+caeté, caethes
+eminente, emminente
+hipódromo, hippodromo
+metalúrgica, metallurgica
+atrai, attrai
+paladina, palladina
+inteligência, intelligencia
+escultor, esculptor
+centenário, centennário
+comande, commande
+inclito, inclyto
+iluminado, illuminado
+gratia, grattia
+piriri, piriry
+britânico, britannico
+científico, scientífico
+coletores, colletores
+uruguaio, uruguayo
+calao, callao
+pitagorico, pythagórico
+apolonio, apollonio
+jerônimo, jerônymo
+reorganização, reorganisação
+imortalidade, immortalidade
+colectoria, collectoria
+geométrico, geométtricos
+filatélica, philatelica
+perfil, perfill
+farmacêutica, pharmaceuticas
+comer, commer
+protocolo, protocollo
+colocou, collocou
+colaboradora, collaboradora
+possui, ppossui
+araguaia, araguaya
+figueiredo, figueyredo
+encimada, encimadda
+avermelhada, avermellhada
+nomeio, nommeio
+náilon, naylon
+branco, brancco
+batismo, baptismo
+atuou, actuou
+célula, cellula
+descritivo, descriptivo
+geográfica, geographica
+guaicuru, guaycurús
+paladio, palladio
+diretório, directorio
+cientista, scientistas
+goitaca, goytacá
+enciclopédico, encyclopédico
+analítico, analytico
+descritiva, descriptiva
+objeto, objectos
+apoio, apoyo
+produção, producção
+fisiografia, phisiographia
+itatiaia, itatiaya
+cuiete, cuyeté
+hidráulica, hydraulicas
+hidrográfico, hydrographicos
+coletânea, colectanea
+monografia, monographias
+telefônica, telephonica
+didática, didáctica
+interativa, interactiva
+diretamente, directamente
+atenção, attenção
+estilo, estylo
+matias, mattias
+escala, escalla
+falecimento, fallecimento
+calado, callado
+inocentem, innocentem
+oportunidade, opportunidade
+poiares, poyares
+serafico, seraphico
+landri, landry
+eliseu, elyseu
+escultura, esculptura
+tavoleta, tavoletta
+proporcionaram, propporcionaram
+sibila, sibilla
+gala, gallas
+greco, grecco
+otaviano, ottaviano
+transparente, ttransparente
+científica, scientifica
+maíra, mayra
+lírio, lyrio
+ricardo, riccardo
+falecer, fallecer
+sistema, systema
+pecado, peccado
+geografia, geographia
+falecida, fallecida
+lambari, lambary
+socorro, soccorros
+atlético, athleticos
+cetro, sceptro
+bragança, bbragança
+fruta, fructas
+bordo, borddo
+olímpico, olympico
+anete, annete
+rola, rollas
+telegráfica, telegraphica
+cuiabá, cuyabá
+cronômetro, chronometro
+demográfica, demographica
+portuguese, pportugueses
+reinal, reinall
+profilático, prophilático
+eucalipto, eucalypto
+comissário, commissario
+brotei, brothey
+mexia, mexya
+mártires, martyres
+prateado, pprateado
+atlética, athletica
+farmacia, pharmacia
+parabélum, parabellum
+comandante, commandante
+ofereceu, offereceu
+gomil, gomill
+teti, thetys
+otomi, ottomi
+fenolito, phenolito
+fonograma, phonograma
+organização, organisação
+abdala, abdalla
+bordalo, bordallo
+limpeza, limpesa
+marumbi, marumby
+bacelar, bacellar
+leite, leitte
+engomado, enngomado
+higiênico, hygíenicos
+belonia, bellonia
+eletrônica, elettronica
+física, physica
+telegráfico, telegraphico
+projeto, projecto
+direta, directa
+década, décadda
+grafo, grapho
+valejo, vallejo
+contrato, contracto
+inovador, innovador
+indaia, indayá
+goiaba, goyaba
+igapeba, ygapeba
+muele, muelle
+contato, contacto
+inominado, innominado
+lovia, llovia
+noturna, nocturna
+
+# === 2. Nomes próprios escritos de duas formas no acervo (135 regras) ===
+# As duas formas aparecem como nome (com inicial maiúscula) em 2 ou mais itens. Ex.: Souza/Sousa.
+joze, josé
+prezidente, presidente
+cristian, christian
+brazileiros, brasileiros
+telefones, telephones
+barboza, barbosa
+ioanes, ioannes
+joanes, joannes
+melo, mello
+cardozo, cardoso
+artur, arthur
+izabel, isabel
+tereza, teresa, thereza, theresa
+vitória, victória
+otávio, octávio
+brasiliæ, brasilliae
+vasconcelos, vasconcellos
+souza, sousa
+vale, valle
+bacarat, baccarat
+dorneles, dornelles
+jaime, jayme
+bitencourt, bittencourt
+tomaz, thomaz
+otacílio, octacílio
+jozefa, josefa
+barcelos, barcellos
+baroneza, baronesa
+uruguai, uruguay
+rezende, resende
+marta, martha
+neto, netto
+silvio, sylvio
+belo, bello
+mota, motta
+vilares, villares
+anés, annes
+jeruzalem, jerusalém
+neuza, neusa
+anita, annita
+segal, segall
+eletric, electric
+ipiranga, ypiranga
+honeur, honneur
+olimpikus, olympikus
+josef, joseph
+mena, menna
+henri, henry
+ciro, cyro
+luiza, luisa
+alfeu, alpheu
+ligia, lygia
+filadélfia, philadelphia
+olímpia, olympia
+moacir, moacyr
+vitorio, vittorio
+freire, freyre
+menezes, meneses
+reinaldo, reynaldo
+liberti, liberty
+renó, rennó
+tim, timm
+viena, vienna
+eifel, eiffel
+elizeu, eliseu
+matozinhos, matosinhos
+camilo, camillo
+élis, ellis
+julien, jullien
+biblioteca, bibliotheca
+pari, pary
+marcelo, marcello
+flávia, flavya
+airton, ayrton
+jeferson, jefferson
+varela, varella
+izidoro, isidoro
+bon, bonn
+jimi, jimmy
+amauri, amaury
+dal, dall
+rômulo, rommulo
+schaefer, schaeffer
+fleming, flemming
+cipriano, cypriano
+brazilian, brasilian
+valadares, valladares
+haia, haya
+catarina, catharina
+campelo, campello
+camila, camilla
+heli, helly
+gema, gemma
+emanuel, emmanuel
+welington, wellington
+timóteo, timotheo
+ermano, ermanno
+uruguaiana, uruguayana
+suzana, susana
+gladis, gladys
+vit, vict
+anibal, annibal
+dods, dodds
+izidro, isidro
+bobadela, bobadella
+miriam, myriam
+colecção, collecção
+efigênia, ephigênia
+elizabete, elisabete
+galeria, galleria
+portugaliae, portugalliae
+morales, moralles
+vilaça, villaça
+derci, dercy
+saxofone, saxophone
+charles, charlles
+ilmo, illmo
+johanes, johannes
+bil, bill
+lilian, lillian
+louzada, lousada
+pizarro, pisarro
+serzedelo, serzedello
+note, notte
+izidora, isidora
+accioli, accioly
+mariane, marianne
+denis, denys
+mazón, mason
+eli, elly
+ilustre, illustre
+barni, barny
+incident, incydent
+joice, joyce
+james, jammes
+
+# === 3. PARA REVISAR: nome antigo que é palavra comum na grafia atual (9) ===
+# Ex.: "Villa" (Villa-Lobos) × "vila". Ativar faria a busca por "vila" trazer o compositor.
+# aires, ayres        (50 itens com "ayres", 92 com "aires")
+# saião, sayão        (37 itens com "sayão", 1 com "saião")
+# parati, paraty        (35 itens com "paraty", 7 com "parati")
+# tiago, thiago        (12 itens com "thiago", 19 com "tiago")
+# mateus, matheus        (6 itens com "matheus", 22 com "mateus")
+# matias, mathias        (5 itens com "mathias", 20 com "matias")
+# color, collor        (3 itens com "collor", 26 com "color")
+# taumaturgo, thaumaturgo        (1 itens com "thaumaturgo", 1 com "taumaturgo")
+# túlio, tullio        (1 itens com "tullio", 8 com "túlio")
+
+# === 4. PARA REVISAR: autorias quase iguais na taxonomia Autoria (53) ===
+# Diferem numa letra. Podem ser a mesma pessoa (melhor: fundir os termos no Tainacan) ou pessoas diferentes.
+# 325947 33617, 325947 33611        (114 × 4 itens: "325947, 33617" / "325947, 33611")
+# 339158 35558, 339158 35555        (24 × 7 itens: "339158, 35558" / "339158, 35555")
+# julien fils aine, jullien fils aine        (18 × 8 itens: "Julien Fils Aine" / "Jullien Fils Aine")
+# deutsche wafer und munition fabrik, deutsche waffer und munition fabrik        (19 × 1 itens: "Deutsche Wafer Und Munition Fabrik" / "Deutsche Waffer Und Munition Fabrik")
+# 339158 35504, 339158 35507        (13 × 4 itens: "339158, 35504" / "339158, 35507")
+# 339158 20920 35504, 339158 20920 35501        (14 × 2 itens: "339158, 20920, 35504" / "339158, 20920, 35501")
+# 339158 35504, 339158 35501        (13 × 2 itens: "339158, 35504" / "339158, 35501")
+# ugo vanelli, ugo venelli        (11 × 1 itens: "Ugo Vanelli" / "Ugo Venelli")
+# decio rodrigues villares, decio rodrigues vilares        (2 × 9 itens: "Décio Rodrigues Villares" / "Décio Rodrigues Vilares")
+# gilberto freyre, gilberto freire        (9 × 1 itens: "Gilberto Freyre" / "Gilberto Freire")
+# winchester repeating arms co, winchester riepeating arms co        (7 × 1 itens: "Winchester Repeating Arms Co." / "Winchester Riepeating Arms Co")
+# winchester repeating arms co, winchester reperting arms co        (7 × 1 itens: "Winchester Repeating Arms Co." / "[Winchester Reperting Arms Co.]")
+# 339158 44423 44435 44438 44426, 339158 44432 44435 44438 44426        (3 × 4 itens: "339158, 44423, 44435, 44438, 44426" / "339158, 44432, 44435, 44438, 44426")
+# union armoriere belge, union armuriere belge        (1 × 6 itens: "Union Armoriere Belge" / "Union Armuriere Belge")
+# emanoel araujo, emanuel araujo        (4 × 2 itens: "Emanoel Araújo" / "Emanuel Araújo")
+# 339158 44423 44426, 339158 44432 44426        (2 × 4 itens: "339158, 44423, 44426" / "339158, 44432, 44426")
+# 339158 35507, 339158 35501        (4 × 2 itens: "339158, 35507" / "339158, 35501")
+# lilica ripilica, lilica riplica        (1 × 5 itens: "Lilica Ripilica" / "Lilica Riplica")
+# neuza waltrick confeccoes ltda, neusa waltrick confeccoes ltda        (2 × 4 itens: "Neuza Waltrick Confecções Ltda" / "Neusa Waltrick Confecções Ltda.")
+# deutsche waffen und munitions fabriken, deustche waffen und munitions fabriken        (5 × 1 itens: "Deutsche Waffen Und Munitions Fabriken" / "Deustche Waffen Und Munitions Fabriken")
+# 339158 45812, 339158 45818        (3 × 1 itens: "339158, 45812" / "339158, 45818")
+# 339158 45812, 339158 45815        (3 × 1 itens: "339158, 45812" / "339158, 45815")
+# 20920 35504, 20920 35501        (3 × 1 itens: "20920, 35504" / "20920, 35501")
+# j r sucena cia, j r lucena cia        (3 × 1 itens: "J. R. Sucena & Cia" / "J.R. Lucena & Cia")
+# patek phillippe, patek philippe        (3 × 1 itens: "Patek Phillippe" / "Patek Philippe")
+# antonio petikov, antonio peticov        (1 × 2 itens: "Antonio Petikov" / "Antonio Peticov")
+# edison carneiro, edson carneiro        (2 × 1 itens: "Edison Carneiro" / "Edson Carneiro")
+# julian haynes steward, julian haynes stewart        (2 × 1 itens: "Julian Haynes Steward" / "Julian Haynes Stewart")
+# 318080 42488, 318080 42485        (1 × 2 itens: "318080, 42488" / "318080, 42485")
+# 317135 339158 44432 44426, 317135 339158 44438 44426        (1 × 2 itens: "317135, 339158, 44432, 44426" / "317135, 339158, 44438, 44426")
+# auto aspestos s a, auto asbestos s a        (1 × 2 itens: "Auto Aspestos S.A." / "Auto-Asbestos S.A")
+# jose ronaldoo, jose ronaldo        (2 × 1 itens: "José Ronaldoo" / "José Ronaldo")
+# deutsche waffen und munition fabrik, deutsche waffer und munition fabrik        (2 × 1 itens: "Deutsche Waffen Und Munition Fabrik" / "Deutsche Waffer Und Munition Fabrik")
+# fab weyersberg kirschbaum co, fab weyesberg kirschbaum co        (1 × 2 itens: "Fab: Weyersberg Kirschbaum & Co" / "Fab: Weyesberg Kirschbaum & Co")
+# fab weyesberg kirschbaum co, fab weysberg kirschbaum co        (2 × 1 itens: "Fab: Weyesberg Kirschbaum & Co" / "Fab: Weysberg, Kirschbaum & Co")
+# john broadmood sons, john broadwood sons        (1 × 1 itens: "John Broadmood & Sons" / "John Broadwood & Sons")
+# takashi fukushima, tikashi fukushima        (1 × 1 itens: "Takashi Fukushima" / "Tikashi Fukushima")
+# edgar de cerqueira falcao, edgard de cerqueira falcao        (1 × 1 itens: "Edgar de Cerqueira Falcão" / "Edgard de Cerqueira Falcão")
+# oilian jose, oiliam jose        (1 × 1 itens: "Oilian José" / "Oiliam José")
+# salomao de vasconcelos, salomao de vasconcellos        (1 × 1 itens: "Salomão de Vasconcelos" / "Salomão de Vasconcellos")
+# 339158 45818, 339158 45815        (1 × 1 itens: "339158, 45818" / "339158, 45815")
+# laide aereo, ladie aereo        (1 × 1 itens: "Laide Aéreo" / "Ládie Aéreo")
+# moinhos aurora germano lunder, moinhos aurora germano zunder        (1 × 1 itens: "Moinhos Aurora / Germano Lunder" / "Moinhos Aurora / Germano Zunder")
+# philps do brasil ltda, philips do brasil ltda        (1 × 1 itens: "Philps Do Brasil Ltda" / "Philips Do Brasil Ltda.")
+# josemar latufo val martins luiz jabour, josemar lotufo val martins luiz jabour        (1 × 1 itens: "Josemar Latufo/ Val Martins/ Luiz Jabour" / "Josemar Lotufo/ Val Martins/ Luiz Jabour")
+# weyersberg kirchbaum co, weyersberg kirschbaum co        (1 × 1 itens: "Weyersberg Kirchbaum & Co" / "Weyersberg Kirschbaum & Co.")
+# weyersberg kirchbaum co, weyerberg kirchbaum co        (1 × 1 itens: "Weyersberg Kirchbaum & Co" / "Weyerberg Kirchbaum & Co.")
+# marlin fire arms co, martin fire arms co        (1 × 1 itens: "Marlin Fire Arms Co." / "Martin Fire Arms Co.")
+# cholbert cadet, cholberg cadet        (1 × 1 itens: "Cholbert & Cadet" / "Cholberg & Cadet")
+# schuler august, schuller august        (1 × 1 itens: "[Schuler, August]" / "[Schuller, August?]")
+# wilton brothers, witton brothers        (1 × 1 itens: "Wilton Brothers" / "Witton Brothers")
+# huntrey palmers, huntley palmers        (1 × 1 itens: "Huntrey & Palmers" / "Huntley & Palmers")
+# viillares decio, villares decio        (1 × 1 itens: "VIILLARES, Décio" / "VILLARES, Décio")
