@@ -1,0 +1,176 @@
+# Sinônimos — brasiliana3
+# Gerado em 24/09/2026 a partir dos 74.124 itens publicados. Uma equivalência por linha.
+# Quem buscar qualquer um dos termos encontra os itens descritos com os outros.
+# Linhas que começam com # são comentários e não têm efeito: para ativar uma, apague o #.
+
+# === 1. Siglas definidas nos próprios registros (44 regras) ===
+# Extraídas de trechos como "Companhia Estadual de Energia Elétrica (CEEE)", vistos 2 ou mais vezes.
+ceee, companhia estadual de energia elétrica
+ptb, partido trabalhista brasileiro
+abnt, associação brasileira de normas técnicas
+feb, força expedicionária brasileira
+ceerg, companhia energia elétrica rio grandense
+ufrgs, universidade federal do rio grande do sul
+mjc, museu julio de castilhos
+uerj, universidade do estado do rio de janeiro
+ari, associação riograndense de imprensa
+snuc, sistema nacional de unidades de conservação
+cnco, conservatório nacional de canto orfeônico
+mvm, museu victor meirelles
+utpm, usina termelétrica presidente médici
+dnaee, departamento nacional de águas e energia elétrica
+cccev, centro cultural ceee erico verissimo
+abm, associação brasileira de museologia
+aptc, associação profissional de técnicos cinematográficos
+uea, universidade estadual do amazonas
+coiab, coordenação das organizações indígenas da amazônia brasileira
+margs, museu de arte do rio grande do sul
+auee, associação uruguaianense de escritôres e editôres
+alu, academia de letras de uruguaiana
+mfb, movimento folclorista brasileiro
+cbd, confederação brasileira de desportos
+ime, instituto militar de engenharia
+cmb, casa da moeda do brasil
+ffp, faculdade de formação de professores
+aamvm, associação de amigos do museu victor meirelles
+biac, bienal internacional de arte de cerveira
+esdi, escola superior de desenho industrial
+puc, pontifícia universidade católica
+crvg, club de regatas vasco da gama
+amea, associação metropolitana de esportes athleticos
+pvdi, programação visual de desenho industrial
+acpa, associação comercial de porto alegre
+cgtee, companhia de geração termelétrica de energia elétrica
+gcoi, grupo coordenador para operação interligada
+ccoi, comitês coordenados da operação interligada
+ccon, comitê coordenador da operação do nordeste
+vfrgs, viação férrea do rio grande do sul
+mergs, museu da eletricidade do rio grande do sul
+cesp, companhia energética de são paulo
+ufsm, universidade federal de santa maria
+alev, acervo literário de érico veríssimo
+
+# Vistas uma única vez, ou sigla que também é palavra comum (26) — conferir antes de ativar:
+# abl, academia brasileira de letras
+# aiba, academia imperial de belas artes
+# cir, conselho indígena de roraima
+# cla, centro de lançamento de alcântara
+# coi, comitê olímpico internacional
+# daer, departamento autônomo de estradas de rodagem
+# dep, departamento de estudos e projetos
+# dip, departamento de imprensa e propaganda
+# efl, espaço força e luz
+# faap, fundação armando alvares penteado
+# fab, força aérea brasileira
+# fates, fundação alto taquari de ensino superior
+# fcb, fundação cultural de blumenau
+# geia, grupo de estudos interdisciplinares do ambiente
+# lesa, lavorazioni elettromeccaniche società anonima
+# mai, museu de arqueologia de itaipu
+# masc, museu de arte de santa catarina
+# mis, museu da imagem e do som
+# pea, programa de educação ambiental
+# pesa, programa de educação sócio ambiental
+# pl, partido libertador
+# pt, partido dos trabalhadores
+# sema, secretaria estadual do meio ambiente
+# stm, superior tribunal militar
+# ti, trilha interpretativa
+# uel, universidade estadual de londrina
+
+# === 2. Unidades da Federação (14 regras) ===
+ba, bahia
+df, distrito federal
+mt, mato grosso
+mg, minas gerais
+pb, paraíba
+pr, paraná
+pi, piauí
+rj, rio de janeiro
+rn, rio grande do norte
+rs, rio grande do sul
+ro, rondônia
+rr, roraima
+sc, santa catarina
+sp, são paulo
+# Siglas de UF que também são palavras comuns — ativar faria a palavra puxar o estado:
+# ac, acre        (a.C. (antes de Cristo))
+# al, alagoas        (palavra "al")
+# am, amazonas        (palavra inglesa "am")
+# ap, amapá        (abreviação comum)
+# es, espírito santo        (palavra "es" e espanhol)
+# go, goiás        (palavra inglesa "go")
+# ma, maranhão        (palavra "má")
+# ms, mato grosso do sul        (ms = manuscrito)
+# pa, pará        (palavra "pá")
+# pe, pernambuco        (palavra "pé")
+# se, sergipe        (palavra "se")
+# to, tocantins        (palavra inglesa "to")
+# ce, ceará        (palavra "ce" em francês)
+
+# === Técnicas e materiais (21 regras) ===
+# Termos equivalentes do vocabulário museológico; ao menos um deles aparece no acervo.
+xilogravura, gravura em madeira, xilografia
+litografia, litogravura
+serigrafia, silkscreen, silk screen
+aquarela, aguarela
+guache, gouache
+nanquim, tinta da china
+calcogravura, gravura em metal
+terracota, terracotta, barro cozido
+madrepérola, nácar
+latão, metal amarelo
+papel machê, papier mâché
+louça, loiça
+gelatina e prata, prata e gelatina
+albumina, papel albuminado
+cianotipia, cianótipo
+fotografia, foto
+negativo de vidro, chapa de vidro
+diapositivo, slide
+cartão de visita, carte de visite
+bico de pena, desenho a pena
+off-set, offset, ofsete
+
+# === Objetos (30 regras) ===
+# Termos equivalentes do vocabulário museológico; ao menos um deles aparece no acervo.
+quadro, pintura, tela
+gravura, estampa
+cédula, papel moeda
+selo postal, estampilha
+cartão postal, bilhete postal
+relógio de bolso, relógio de algibeira
+xícara, chávena
+jarra, jarro
+farda, uniforme militar
+carruagem, coche
+liteira, cadeirinha de arruar
+mapa, carta geográfica
+cartaz, pôster
+tapete, alcatifa
+moringa, bilha, quartinha
+candeeiro, lampião
+penico, urinol, bacio
+arca, baú
+canapé, sofá
+toucador, penteadeira
+guarda-roupa, roupeiro
+vitrola, gramofone
+máquina fotográfica, câmera fotográfica, câmara fotográfica
+televisor, televisão
+automóvel, carro
+avião, aeroplano
+botica, farmácia
+condecoração, comenda
+gazeta, jornal
+sombrinha, guarda-chuva
+
+# === História e terminologia (7 regras) ===
+# Termos equivalentes do vocabulário museológico; ao menos um deles aparece no acervo.
+escravizado, escravo, cativo
+indígena, índio
+Segunda Guerra Mundial, II Guerra Mundial
+Primeira Guerra Mundial, Grande Guerra
+Guerra do Paraguai, Guerra da Tríplice Aliança
+Revolução Farroupilha, Guerra dos Farrapos
+Inconfidência Mineira, Conjuração Mineira

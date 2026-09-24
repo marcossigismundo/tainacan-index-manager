@@ -18,6 +18,13 @@ defined( 'ABSPATH' ) || exit;
  */
 class Elasticsearch_Client {
 
+	/**
+	 * Seconds for operations that (re)build analyzers: creating an index, closing,
+	 * opening, changing settings. A synonym map of ~1,600 rules took longer than
+	 * the 5 s search timeout to build on the IBRAM cluster (ES 8.6).
+	 */
+	public const ANALYSIS_TIMEOUT = 120;
+
 	protected Settings $settings;
 	protected Logger $logger;
 
@@ -89,9 +96,9 @@ class Elasticsearch_Client {
 	 *
 	 * @return array|\WP_Error
 	 */
-	public function create_index( string $index, array $body ) {
+	public function create_index( string $index, array $body, int $timeout = 0 ) {
 		$index = $this->sanitize_index_name( $index );
-		return $this->request( 'PUT', '/' . rawurlencode( $index ), $body );
+		return $this->request( 'PUT', '/' . rawurlencode( $index ), $body, array(), $timeout );
 	}
 
 	/**
@@ -228,7 +235,7 @@ class Elasticsearch_Client {
 	 */
 	public function close_index( string $index ) {
 		$index = $this->sanitize_index_name( $index );
-		return $this->request( 'POST', '/' . rawurlencode( $index ) . '/_close', null, array(), 60 );
+		return $this->request( 'POST', '/' . rawurlencode( $index ) . '/_close', null, array(), self::ANALYSIS_TIMEOUT );
 	}
 
 	/**
@@ -238,7 +245,7 @@ class Elasticsearch_Client {
 	 */
 	public function open_index( string $index ) {
 		$index = $this->sanitize_index_name( $index );
-		return $this->request( 'POST', '/' . rawurlencode( $index ) . '/_open?wait_for_active_shards=1', null, array(), 60 );
+		return $this->request( 'POST', '/' . rawurlencode( $index ) . '/_open?wait_for_active_shards=1', null, array(), self::ANALYSIS_TIMEOUT );
 	}
 
 	/**
@@ -248,7 +255,7 @@ class Elasticsearch_Client {
 	 */
 	public function put_index_settings( string $index, array $body ) {
 		$index = $this->sanitize_index_name( $index );
-		return $this->request( 'PUT', '/' . rawurlencode( $index ) . '/_settings', $body, array(), 60 );
+		return $this->request( 'PUT', '/' . rawurlencode( $index ) . '/_settings', $body, array(), self::ANALYSIS_TIMEOUT );
 	}
 
 	/**

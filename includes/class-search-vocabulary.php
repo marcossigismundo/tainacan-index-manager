@@ -466,7 +466,15 @@ final class Search_Vocabulary {
 		if ( false !== get_transient( self::LOCK ) ) {
 			return $this->result( false, $steps, __( 'Já existe uma aplicação do vocabulário em andamento. Aguarde alguns segundos e atualize a página.', 'tainacan-index-manager' ) );
 		}
-		set_transient( self::LOCK, 1, 120 );
+		set_transient( self::LOCK, 1, 600 );
+
+		// Between closing and reopening the index this request must not die: a
+		// PHP time limit or the browser giving up would leave the index closed.
+		// A synonym map of ~1,600 rules already takes several seconds per step.
+		ignore_user_abort( true );
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 0 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
 
 		try {
 			$state  = self::state();
@@ -700,7 +708,7 @@ final class Search_Vocabulary {
 					),
 				),
 			),
-		) );
+		), Elasticsearch_Client::ANALYSIS_TIMEOUT );
 		if ( is_wp_error( $created ) ) {
 			return $created;
 		}
@@ -817,7 +825,7 @@ final class Search_Vocabulary {
 					'analyzer' => $analysis['analyzer'],
 				),
 			),
-		) );
+		), Elasticsearch_Client::ANALYSIS_TIMEOUT );
 		if ( is_wp_error( $created ) ) {
 			return $created;
 		}

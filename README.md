@@ -102,6 +102,7 @@ includes/
 ├── class-health-service.php         Snapshot (cluster + índice + cobertura) com transient 60s
 ├── class-collections-monitor.php    Cobertura por coleção (transient 300s)
 ├── class-traffic-light.php          Semáforo: snapshot + fila + fallback → cor e verificações
+│   (tools/vocabulario/ gera listas do acervo; docs/vocabulario-brasiliana3/ tem as do brasiliana3)
 ├── class-search-vocabulary.php      Sinônimos/variantes/correções/palavras ignoradas → analisador de busca
 ├── class-es-query-builder.php       WP_Query args → DSL do ES (tudo-ou-nada)
 ├── class-search-integration.php     posts_pre_query → ES, com fallback SQL
@@ -336,6 +337,60 @@ recriar o índice não o perde.
 
 **Busca aproximada** (`search_typo_tolerance`, desligada por padrão): acrescenta
 `fuzziness: AUTO` e `prefix_length: 1` ao `multi_match`. Convive com os sinônimos.
+
+**Tempo limite.** Criar, fechar, abrir e reconfigurar um índice usa
+`Elasticsearch_Client::ANALYSIS_TIMEOUT` (120 s), não o `es_timeout` de 5 s das
+buscas. No ES 8.6 do IBRAM, montar um dicionário de ~1.600 regras levou mais de 5 s,
+e o ensaio falhava por tempo. `apply()` também chama `ignore_user_abort(true)` e
+`set_time_limit(0)`: um limite do PHP ou o navegador desistindo no meio não pode
+deixar o índice fechado.
+
+### Gerar listas a partir do acervo (`tools/vocabulario/`)
+
+As listas podem ser geradas a partir do vocabulário real do acervo e depois
+carregadas pela tela (botão "Substituir por arquivo" em cada aba):
+
+1. `vocab-dump.php` — roda com `wp eval-file` dentro do site e extrai as palavras
+   dos itens publicados (título, descrição, metadados e termos de taxonomia), com
+   frequência, proporção de inicial maiúscula e a grafia acentuada mais comum. Extrai
+   também as siglas que o próprio acervo define ("Nome por Extenso (SIGLA)") e os
+   termos das taxonomias. Só lê.
+2. `gerar-listas.js` — cruza esse vocabulário com o dicionário IME-USP (+ lista
+   pythonprobr, cujas entradas com maiúscula servem de lista de nomes próprios) e
+   com um dicionário de inglês, e escreve os quatro `.txt`. As regras de confiança
+   alta ficam ativas; as duvidosas saem como comentário `#`, com a contagem de itens,
+   para a equipe revisar.
+3. `validar-listas.php` — passa os arquivos pelo mesmo `Search_Vocabulary::parse()`
+   do plugin, na linha de comando.
+
+Critérios, calibrados olhando amostras do brasiliana3:
+
+| Lista | Entra como regra ativa |
+|---|---|
+| Grafias antigas | forma antiga fora do dicionário e forma atual no dicionário, pelas trocas ph/th/y/consoantes dobradas/sc/chr. Nas trocas ct, pt, cc e z↔s, só se a forma atual for 3× mais frequente — isso barra pares como captador/catador. Nomes próprios do dicionário (Villa, Penna) vão para revisão. |
+| Nomes em duas grafias | as duas formas com inicial maiúscula em ≥ 70% das ocorrências e presentes em ≥ 2 itens. Pares em que as duas formas são palavras em inglês são descartados. |
+| Erros de catalogação | forma com até 3 ocorrências, fora dos dicionários de português e de inglês, sem cara de nome próprio, a uma edição (Damerau) de palavra do dicionário 20× mais frequente. Regra `certa => erradas`: quem busca a forma certa acha também os itens com erro. |
+| Siglas | definidas no próprio acervo, vistas ≥ 2 vezes, desde que a sigla não seja também uma palavra. |
+
+A proporção de maiúsculas **não** serve para separar nomes de palavras: "tesouro"
+aparece 98% das vezes em maiúscula, por causa dos títulos. O que separa nomes de
+palavras é a lista de nomes próprios do dicionário.
+
+As listas geradas para o brasiliana3 em 24/09/2026 estão em
+`docs/vocabulario-brasiliana3/` e somam 1.641 regras ativas (1.629 depois da
+normalização) e ~49 KB:
+
+| Arquivo | Regras ativas |
+|---|---|
+| `1-sinonimos.txt` | 116 (44 siglas do acervo, 14 UFs, 58 do tesauro) |
+| `2-grafias-e-variantes.txt` | 559 (424 grafias antigas e 135 nomes) |
+| `3-correcoes-e-paronimos.txt` | 963 (931 erros de catalogação e 32 erros comuns do público) |
+| `4-palavras-ignoradas.txt` | 3 (`https`, `br`, `gov`) |
+
+Todas passaram pelo `parse()` sem erro e pelo ensaio estrito no ES do brasiliana3
+(aceito em 6 s, índice real intocado). Exemplos de efeito medido: "litografia"
+66 → 1.217 itens, "tesouro" 328 → 711, "sp" 137 → 663, "teresa" 60 → 174,
+"escravizado" 5 → 96.
 
 ### Indicadores de monitoramento da indexação
 

@@ -145,3 +145,34 @@ Pedido do Marcos: semáforo "bonito e funcional" do Elasticsearch; o plugin como
   Cabe à equipe de acervo revisar ou apagar essas regras. O backup dos arquivos da 1.2.0 está em `/root/tim-bkp-20260924-155002/` no nó 172.30.11.99.
 - A tela de admin não foi vista logada: foi renderizada localmente, no Edge headless, com respostas reais da API do brasiliana3. Os templates Vue foram compilados com `@vue/compiler-dom@3.4.27`, sem erro.
 - `uninstall.php` foi corrigido de passagem: o autoloader dependia de `TAINACAN_INDEX_MANAGER_DIR`, que não existe na desinstalação.
+
+## Listas de vocabulário geradas do acervo do brasiliana3 (24/09/2026)
+
+Pedido do Marcos: estimar quantas regras cada lista comporta a partir do banco e depois gerar os quatro arquivos, prontos para subir pela tela. Arquivos em `docs/vocabulario-brasiliana3/`; como foram gerados está em `tools/vocabulario/` e no README ("Gerar listas a partir do acervo").
+
+**Ainda não aplicados.** O Marcos vai subir os arquivos pela tela, aba por aba, com "Substituir por arquivo" — isso troca as 8 regras de exemplo que estão em uso. O ensaio foi feito com as etapas internas do plugin, por reflexão, num índice temporário `-vocab-dryrun` já apagado, **sem fechar o índice real**.
+
+**Base e resultado.**
+- Base: 74.124 itens publicados, 8,3 M palavras, 57.325 palavras distintas.
+- Resultado: 1.641 regras ativas, que viram 1.629 depois da normalização; 82 termos com palavras vazias foram ajustados.
+- Parse sem erro. Ensaio estrito aceito em 6 s.
+
+**Calibração que importou.**
+- A primeira estimativa, sem dicionário, tinha cerca de 63% de acerto nas grafias e 40% nos erros.
+- Com o dicionário IME-USP e a lista de nomes próprios, as amostras ficaram quase limpas.
+- A proporção de maiúsculas **engana**: "tesouro" é 98% maiúscula por causa dos títulos, então nome próprio é quem está na lista de nomes do dicionário.
+- Pares que o cruzamento com o dicionário eliminou: lazer/laser, hera/era, Villa/vila, Penna/pena, captador/catador, Goya/Goiás.
+
+**Bug encontrado pelo ensaio e corrigido.**
+- O ensaio com 1.629 regras estourou o `es_timeout` de 5 s na criação do índice temporário. Com os arquivos subidos como estavam, a aplicação teria falhado nessa etapa, antes de tocar o índice real.
+- Agora criar, fechar, abrir e configurar índice usam `Elasticsearch_Client::ANALYSIS_TIMEOUT` (120 s).
+- `apply()` chama `ignore_user_abort(true)` e `set_time_limit(0)`, para que o PHP não morra com o índice fechado.
+- A correção está instalada no brasiliana3.
+
+**Limitação conhecida das correções.**
+- A forma errada passa pelo stemmer, e o radical dela pode colidir com o de outra palavra. Exemplo: "formaro" vira "formar", então a busca por "formato" traz também itens com "formar": de 5.714 para 5.813 itens, com parte desse ganho sendo ruído.
+- O efeito é pequeno, mas um filtro que rejeite formas erradas cujo radical coincida com o de uma palavra frequente diferente seria a melhoria natural do `gerar-listas.js` (exige rodar `_analyze` nas formas).
+
+**Não mensurável pelo banco.**
+- Os erros que o **público** comete ao buscar não aparecem no acervo. Para isso é preciso o registro das buscas do site: `ibram-analytics-collector` e `statify` estão ativos no brasiliana3, e valeria ver se algum deles guarda os termos buscados.
+- Siglas sem forma por extenso no acervo e sinônimos do tesauro dependem de curadoria. Os 58 grupos do tesauro foram escritos à mão e filtrados por presença no acervo.
