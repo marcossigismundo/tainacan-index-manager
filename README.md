@@ -336,7 +336,42 @@ sinônimos (8.10+), por isso o caminho é fechar/abrir — que também funciona 
 recriar o índice não o perde.
 
 **Busca aproximada** (`search_typo_tolerance`, desligada por padrão): acrescenta
-`fuzziness: AUTO` e `prefix_length: 1` ao `multi_match`. Convive com os sinônimos.
+`fuzziness: AUTO:5,8` e `prefix_length: 1` ao `multi_match`. Palavras de até 4 letras
+são exatas, as de 5 a 7 aceitam 1 letra de diferença e as de 8 ou mais aceitam 2.
+Com o `AUTO` puro, que já aceita 1 letra a partir de 3, "casa" casava com caso,
+cada, cara e cama, e "arte" ia de 7.449 para 16.086 itens no brasiliana3.
+Convive com os sinônimos.
+
+### Busca por texto (`ES_Query_Builder::text_query()`)
+
+Uma cláusula só, usada pela listagem, pelas facetas e pelo testador do vocabulário.
+
+- **Metadados e termos de taxonomia são `nested`.** Até a 1.3.0, o `multi_match`
+  listava `metadata.value_text` e `taxonomies.terms` no nível de cima, onde eles
+  não existem, e a busca por texto só olhava título, descrição e conteúdo. Agora
+  cada palavra precisa ser achada (`operator: and`) no título/descrição/conteúdo,
+  em **um** valor de metadado ou em **um** termo de taxonomia. No brasiliana3,
+  "fotografia" foi de 2.010 para 5.330 itens e "aquarela" de 61 para 363.
+- **Completar palavras** (`search_prefix`, ligado por padrão). A última palavra é
+  tratada como começo de palavra (`match_phrase_prefix`, `max_expansions: 200`,
+  sobre os radicais do índice) **só** quando:
+  - ela sozinha não acha nada ("fotogr", "litogr", "xilog"); ou
+  - a busca inteira não acha nada (quem ainda está digitando: "retrato de mul").
+
+  Expandir sempre foi medido e descartado: "arte" iria de 551 para 6.337 itens
+  (artigo, artilharia…) e "rio" de 2.965 para 9.414. Pedaços que já são radicais
+  ("pint", "tesour") já casavam.
+- Para decidir, o builder faz até dois `_count`, sem busca aproximada e com cache
+  por requisição, por meio de uma sonda que `Search_Integration` registra
+  (`ES_Query_Builder::set_count_probe()`). Se a sonda falha, não há expansão.
+  Custo medido: a busca continua em ~0,3 s.
+
+Resultado no brasiliana3 (busca pública do Tainacan, contador do ES conferido):
+"fotogr" 0 → 4.144, "litogr" 0 → 1.216, "xilog" 0 → 427, "retrato de mul" 0 → 122.
+
+No testador do vocabulário, "Sem o vocabulário" é a cláusula com o analisador de
+indexação e sem completar palavras; "Na busca do site" é exatamente o que a busca
+responde, com vocabulário, completar palavras e busca aproximada.
 
 **Tempo limite.** Criar, fechar, abrir e reconfigurar um índice usa
 `Elasticsearch_Client::ANALYSIS_TIMEOUT` (120 s), não o `es_timeout` de 5 s das

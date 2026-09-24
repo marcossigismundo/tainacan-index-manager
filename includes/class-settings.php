@@ -96,6 +96,8 @@ final class Settings {
 			'menu_location'             => 'other',
 			// Accept one or two wrong letters in free-text search (ES fuzziness AUTO).
 			'search_typo_tolerance'     => false,
+			// Complete the last word when it was typed incomplete ("fotogr" → fotografia).
+			'search_prefix'             => true,
 			'last_index_run_ts'         => 0,
 			'last_health_check_ts'      => 0,
 		);
@@ -241,6 +243,7 @@ final class Settings {
 				return 'root' === $v ? 'root' : 'other';
 
 			case 'search_typo_tolerance':
+			case 'search_prefix':
 			case 'auto_indexing_enabled':
 			case 'alert_email_enabled':
 			case 'alert_dashboard_enabled':

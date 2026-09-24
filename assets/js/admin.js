@@ -714,6 +714,7 @@
 							</select>\
 						</div>\
 						<div class="tim-field"><label><input type="checkbox" v-model="form.search_typo_tolerance"> Tolerar erros de digitação na busca por texto</label><span class="tim-help">Aceita uma ou duas letras trocadas ("fotgrafia" encontra "fotografia"). A primeira letra precisa estar certa. Veja também o <a :href="vocabularyUrl">Vocabulário da busca</a>.</span></div>\
+						<div class="tim-field"><label><input type="checkbox" v-model="form.search_prefix"> Completar palavras incompletas ("fotogr" encontra fotografia)</label><span class="tim-help">Só entra quando a última palavra digitada não existe no acervo, para não transformar "arte" em artigo ou artilharia.</span></div>\
 					</div>\
 				</div>\
 \
@@ -1120,6 +1121,8 @@
 				testResult: null,
 				typo: false,
 				typoSaving: false,
+				prefix: true,
+				prefixSaving: false,
 				settingsUrl: window.TIMConfig.settingsUrl
 			};
 		},
@@ -1168,6 +1171,7 @@
 				Promise.all([api('GET', '/vocabulary'), api('GET', '/settings')]).then(function (res) {
 					self.applyState(res[0]);
 					self.typo = !!(res[1] && res[1].search_typo_tolerance);
+					self.prefix = !!(res[1] && res[1].search_prefix);
 					self.dirty = false;
 				}).catch(function (e) {
 					self.msg = e.message; self.msgClass = 'is-error';
@@ -1267,6 +1271,16 @@
 					self.msgClass = 'is-success';
 				}).catch(function (e) { self.msg = e.message; self.msgClass = 'is-error'; self.typo = !self.typo; })
 				.finally(function () { self.typoSaving = false; });
+			},
+			togglePrefix: function () {
+				var self = this;
+				this.prefixSaving = true;
+				api('POST', '/settings', { search_prefix: this.prefix }).then(function (res) {
+					self.prefix = !!(res.settings && res.settings.search_prefix);
+					self.msg = self.prefix ? 'Completar palavras ligado: já vale para as próximas buscas.' : 'Completar palavras desligado.';
+					self.msgClass = 'is-success';
+				}).catch(function (e) { self.msg = e.message; self.msgClass = 'is-error'; self.prefix = !self.prefix; })
+				.finally(function () { self.prefixSaving = false; });
 			}
 		},
 		template: [
@@ -1339,6 +1353,14 @@
 			'    <label class="tim-switch"><input type="checkbox" v-model="typo" @change="toggleTypo" :disabled="typoSaving"><span class="tim-switch-track" aria-hidden="true"></span><span>{{ typo ? \'Ligada\' : \'Desligada\' }}</span></label>',
 			'  </section>',
 			'',
+			'  <section class="tim-section tim-typo">',
+			'    <div>',
+			'      <h2>Completar palavras</h2>',
+			'      <p>Quando a última palavra digitada não existe no acervo, a busca a trata como começo de palavra: “fotogr” encontra fotografia, fotográfico e fotógrafo; “retrato de mul” encontra “retrato de mulher”. Palavras completas não são alteradas — “arte” continua buscando arte, e não artigo ou artilharia.</p>',
+			'    </div>',
+			'    <label class="tim-switch"><input type="checkbox" v-model="prefix" @change="togglePrefix" :disabled="prefixSaving"><span class="tim-switch-track" aria-hidden="true"></span><span>{{ prefix ? \'Ligado\' : \'Desligado\' }}</span></label>',
+			'  </section>',
+			'',
 			'  <div class="tim-vocab-actions">',
 			'    <span class="tim-muted">{{ fmtNumber(totalRules) }} regras e {{ fmtNumber(count(\'stopwords\')) }} palavras ignoradas no rascunho<template v-if="report && !report.ok"> · <strong class="tim-text-danger">{{ report.errors_total }} linha(s) a corrigir</strong></template></span>',
 			'    <button type="button" class="tim-btn is-secondary" @click="save" :disabled="saving || applying"><span class="tim-loading" v-if="saving"></span>Salvar rascunho</button>',
@@ -1378,7 +1400,7 @@
 			'        <div class="tim-test-counts">',
 			'          <div><span class="tim-card-label">Sem o vocabulário</span><span class="tim-card-value">{{ fmtNumber(testResult.count_without) }}</span><span class="tim-muted">itens</span></div>',
 			'          <span class="tim-test-arrow" aria-hidden="true">→</span>',
-			'          <div><span class="tim-card-label">Com o vocabulário</span><span class="tim-card-value">{{ fmtNumber(testResult.count_with) }}</span><span class="tim-muted">itens</span></div>',
+			'          <div><span class="tim-card-label">Na busca do site</span><span class="tim-card-value">{{ fmtNumber(testResult.count_with) }}</span><span class="tim-muted">itens</span></div>',
 			'        </div>',
 			'        <p class="tim-vocab-label">A busca procura por</p>',
 			'        <div class="tim-test-forms">',

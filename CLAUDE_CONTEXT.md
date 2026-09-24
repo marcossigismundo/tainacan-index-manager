@@ -8,7 +8,7 @@ O README cobre a arquitetura em detalhe (schema do índice, tradução de querie
 
 ## Versão atual e onde está o trabalho
 
-**v1.3.0** — branch `feat/es-routing-facetas` (ainda não mesclado em `main`); a 1.3.0 está na seção "1.3.0: semáforo, menu em Outros, vocabulário da busca", no fim deste arquivo. Repositório: `github.com/marcossigismundo/tainacan-index-manager`.
+**v1.3.1** — branch `main` (o `feat/es-routing-facetas` foi mesclado em 24/09/2026). As seções do fim deste arquivo descrevem a 1.3.0 (semáforo, menu, vocabulário), as listas geradas e a 1.3.1 (busca nos metadados e completar palavras). Repositório: `github.com/marcossigismundo/tainacan-index-manager`.
 
 Este branch é o resultado de uma sessão de diagnóstico + implementação ao vivo em produção (`agregador.museus.gov.br`, ~37 mil itens, 1 coleção principal). Antes dele, o plugin tinha índice populado e **nunca usado** — ver seção "Como chegamos aqui".
 
@@ -110,7 +110,7 @@ Conferido em 22/09/2026, com o painel corrigido já em pé (deploy manual dos qu
 - Item em `trash` não é removido do índice (`before_delete_post` só dispara em exclusão permanente) — gap documentado no README, não corrigido.
 - Índice antigo `tainacan_items` ainda não removido.
 - Divergência de recall na busca textual (acima) não validada com a equipe de acervo.
-- PR do branch `feat/es-routing-facetas` para `main` ainda não aberto.
+- ~~PR do branch para `main`~~: mesclado diretamente em `main` em 24/09/2026, a pedido do Marcos (merge `--no-ff`, sem PR).
 - **Correção do painel só está no brasiliana3.** O agregador (produção) continua com o `Health_Service` antigo — como o cluster agora está GREEN, ele não mostra o alerta, mas volta a mostrar se qualquer vizinho ficar amarelo de novo.
 - **278 documentos órfãos no `brasiliana3_items_v1`** e divergência por excesso invisível no painel (ver seção acima).
 - `agregadormuseusgovbr-post-1` continua no cluster, vazio desde 07/05/2026 — candidato a remoção, decisão do Marcos.
@@ -176,3 +176,29 @@ Pedido do Marcos: estimar quantas regras cada lista comporta a partir do banco e
 **Não mensurável pelo banco.**
 - Os erros que o **público** comete ao buscar não aparecem no acervo. Para isso é preciso o registro das buscas do site: `ibram-analytics-collector` e `statify` estão ativos no brasiliana3, e valeria ver se algum deles guarda os termos buscados.
 - Siglas sem forma por extenso no acervo e sinônimos do tesauro dependem de curadoria. Os 58 grupos do tesauro foram escritos à mão e filtrados por presença no acervo.
+
+## 1.3.1: busca nos metadados e completar palavras (24/09/2026)
+
+Pergunta do Marcos: "buscar fotogr deveria trazer fotografia?" Medido: não trazia — 0 itens sem a busca aproximada. Com ela ligada, trazia 1.551 itens: 74% dos de "fotografia" e mais 61 sem relação.
+
+**Defeito antigo descoberto no caminho:** o `multi_match` listava `metadata.value_text` e `taxonomies.terms` no nível de cima, mas são `nested`. Então **a busca por texto nunca olhou os metadados**, desde a reescrita da 1.2.0. Consertado em `ES_Query_Builder::text_match()`. Efeito no brasiliana3:
+- "fotografia": 2.010 → 5.330 itens;
+- "aquarela": 61 → 363;
+- "arte": 551 → 7.449.
+
+**Completar palavras**: como decidido e medido está no README, seção "Busca por texto".
+- Três estratégias testadas no índice real. "Prefixo sempre" inflava palavras completas: "arte" chegava a 6.337, "rio" a 9.414.
+- Ficou o prefixo só quando a última palavra não existe no índice, ou quando a busca inteira não acha nada.
+- A sonda roda **sem** busca aproximada; do contrário, "fotogr" "existiria" por semelhança e o prefixo nunca entraria.
+
+**Busca aproximada** foi para `AUTO:5,8`. Com metadados no jogo, o `AUTO` puro fazia "casa" casar com caso, cada, cara e cama.
+- O Marcos ligou a busca aproximada pela tela, e ela continua ligada no brasiliana3.
+- Medido depois do ajuste: "fotgrafia" 4.116 itens, "pintrua" 3.604, "arte" 7.449 (exato).
+
+**Estado do brasiliana3:**
+- 1.3.1 instalada (backup da 1.3.0 em `/root/tim-bkp-20260924-171641/`).
+- `search_prefix=true` e `search_typo_tolerance=true`.
+- O vocabulário que o Marcos subiu (as listas de `docs/vocabulario-brasiliana3/`) está em uso.
+- Todas as buscas medidas foram respondidas pelo ES (`query_total` sobe 2 a 3 por busca: a busca e as sondas), sem fallback, em ~0,3 s.
+
+**Ponto a observar:** com os metadados incluídos, buscas de palavras comuns trazem bem mais itens do que antes ("casa" 15.550, "rio" 9.357). As ocorrências são reais, mas a busca do Tainacan ordena por data, não por relevância, então o que o público vê primeiro não é necessariamente o mais pertinente. Vale avaliar com a equipe se a busca textual deve ordenar por relevância.

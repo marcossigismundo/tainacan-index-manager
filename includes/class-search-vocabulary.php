@@ -933,7 +933,7 @@ final class Search_Vocabulary {
 			'text'          => $text,
 			'forms'         => self::group_tokens( $with ),
 			'forms_without' => is_array( $without ) ? self::group_tokens( $without ) : array(),
-			'count_with'    => $this->count_matches( $index, $text, 'tnc_pt_br_search' ),
+			'count_with'    => $this->count_matches( $index, $text, null ),
 			'count_without' => $this->count_matches( $index, $text, 'tnc_pt_br' ),
 		);
 	}
@@ -941,20 +941,15 @@ final class Search_Vocabulary {
 	/**
 	 * Published items matching the same free-text query the search runs.
 	 */
-	private function count_matches( string $index, string $text, string $analyzer ): ?int {
+	private function count_matches( string $index, string $text, ?string $analyzer ): ?int {
+		// Same clause the site's search uses. With the analyzer forced to the
+		// index-time one (no vocabulary), the start-of-word completion is off too,
+		// so "sem" really is the search without anything this page adds.
 		$res = $this->client->count( $index, array(
 			'query' => array(
 				'bool' => array(
 					'must'   => array(
-						array(
-							'multi_match' => array(
-								'query'    => $text,
-								'fields'   => array( 'title^3', 'description^2', 'content', 'metadata.value_text', 'taxonomies.terms' ),
-								'operator' => 'and',
-								'analyzer' => $analyzer,
-								'auto_generate_synonyms_phrase_query' => false,
-							),
-						),
+						ES_Query_Builder::text_query( $text, $analyzer, null === $analyzer ),
 					),
 					'filter' => array( array( 'term' => array( 'post_status' => 'publish' ) ) ),
 				),

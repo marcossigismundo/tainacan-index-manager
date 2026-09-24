@@ -80,6 +80,21 @@ final class Search_Integration {
 
 	public function register(): void {
 		add_filter( 'posts_pre_query', array( $this, 'maybe_answer_from_index' ), 10, 2 );
+
+		// Lets the builder check whether the last typed word exists before
+		// expanding it as the start of a word ("fotogr" → fotografia). A cheap
+		// _count, cached per request; any failure simply means "no expansion".
+		ES_Query_Builder::set_count_probe( function ( array $clause ): ?int {
+			$res = $this->client->count( (string) $this->settings->get( 'index_name' ), array(
+				'query' => array(
+					'bool' => array(
+						'must'   => array( $clause ),
+						'filter' => array( array( 'terms' => array( 'post_status' => array( 'publish', 'private' ) ) ) ),
+					),
+				),
+			) );
+			return is_wp_error( $res ) ? null : (int) $res;
+		} );
 	}
 
 	/**

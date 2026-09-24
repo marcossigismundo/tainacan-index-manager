@@ -131,24 +131,7 @@ final class ES_Query_Builder {
 		// Free-text search.
 		$s = trim( (string) ( $args['s'] ?? '' ) );
 		if ( '' !== $s ) {
-			$match = array(
-				'query'    => $s,
-				'fields'   => array( 'title^3', 'description^2', 'content', 'metadata.value_text', 'taxonomies.terms' ),
-				'operator' => 'and',
-				// A multi-word synonym ("rio de janeiro, rj") would otherwise become a
-				// phrase query. Stopwords leave position gaps in the index ("rio _
-				// janeiro"), so the phrase never matches and the expansion loses the
-				// very documents it was meant to find. Measured on a lab index: with
-				// the phrase, "rio de janeiro" missed "Vista do Rio de Janeiro".
-				'auto_generate_synonyms_phrase_query' => false,
-			);
-			if ( self::typo_tolerance_enabled() ) {
-				// AUTO = 0 edits up to 2 letters, 1 up to 5, 2 beyond. The first letter
-				// must match, which keeps the expansion cheap and the results sane.
-				$match['fuzziness']     = 'AUTO';
-				$match['prefix_length'] = 1;
-			}
-			$must[] = array( 'multi_match' => $match );
+			$must[] = self::text_query( $s );
 		}
 
 		// Explicit ID restrictions.
@@ -205,6 +188,178 @@ final class ES_Query_Builder {
 		}
 
 		return array( 'bool' => $bool );
+	}
+
+	/**
+	 * Counts documents for a query clause; set by Search_Integration so the
+	 * builder can ask "does this word exist?" without owning an HTTP client.
+	 *
+	 * @var callable|null fn( array $clause ): ?int
+	 */
+	private static $count_probe = null;
+
+	/** Probe answers for this request, keyed by clause hash. */
+	private static array $probe_cache = array();
+
+	public static function set_count_probe( ?callable $probe ): void {
+		self::$count_probe = $probe;
+		self::$probe_cache = array();
+	}
+
+	/**
+	 * Free-text clause for `s`, shared by listings, facets and the vocabulary tester.
+	 *
+	 * Two things beyond a plain multi_match:
+	 *
+	 * 1. **Metadata and taxonomy terms are nested**, so a top-level multi_match that
+	 *    merely lists `metadata.value_text` never looks inside them. Until 1.3.1 the
+	 *    text search silently covered title, description and content only; on the
+	 *    brasiliana3 "fotografia" went from 2,010 to 5,330 items and "aquarela" from
+	 *    61 to 363 once metadata was actually searched.
+	 * 2. **Start of a word** ("fotogr" → fotografia, fotógrafo), see prefix_query().
+	 *
+	 * @param string      $s        What was typed.
+	 * @param string|null $analyzer Force an analyzer (the tester compares with/without vocabulary).
+	 * @param bool        $prefix   Allow the start-of-word expansion.
+	 */
+	public static function text_query( string $s, ?string $analyzer = null, bool $prefix = true ): array {
+		$base = self::text_match( $s, $analyzer );
+		if ( ! $prefix || ! self::prefix_enabled() || ! self::wants_prefix( $s ) ) {
+			return $base;
+		}
+		return array(
+			'bool' => array(
+				'should'               => array( $base, self::prefix_query( $s ) ),
+				'minimum_should_match' => 1,
+			),
+		);
+	}
+
+	/**
+	 * Every word must be found (operator `and`) in the title, description,
+	 * content, one metadata value or one taxonomy term.
+	 */
+	private static function text_match( string $s, ?string $analyzer = null, bool $fuzzy = true ): array {
+		$mm = function ( array $fields ) use ( $s, $analyzer, $fuzzy ): array {
+			$match = array(
+				'query'    => $s,
+				'fields'   => $fields,
+				'operator' => 'and',
+				// A multi-word synonym ("rio de janeiro, rj") would otherwise become a
+				// phrase query. Stopwords leave position gaps in the index ("rio _
+				// janeiro"), so the phrase never matches and the expansion loses the
+				// very documents it was meant to find. Measured on a lab index: with
+				// the phrase, "rio de janeiro" missed "Vista do Rio de Janeiro".
+				'auto_generate_synonyms_phrase_query' => false,
+			);
+			if ( null !== $analyzer ) {
+				$match['analyzer'] = $analyzer;
+			}
+			if ( $fuzzy && self::typo_tolerance_enabled() ) {
+				// AUTO:5,8 = exact up to 4 letters, 1 edit from 5, 2 edits from 8. Plain
+				// AUTO allowed 1 edit already at 3 letters, and with metadata searched
+				// "casa" matched caso/cada/cara/cama: 18,101 items on the brasiliana3.
+				// The first letter must match, which keeps the expansion cheap.
+				$match['fuzziness']     = 'AUTO:5,8';
+				$match['prefix_length'] = 1;
+			}
+			return array( 'multi_match' => $match );
+		};
+
+		return array(
+			'bool' => array(
+				'should'               => array(
+					$mm( array( 'title^3', 'description^2', 'content' ) ),
+					array( 'nested' => array( 'path' => 'metadata', 'score_mode' => 'max', 'query' => $mm( array( 'metadata.value_text' ) ) ) ),
+					array( 'nested' => array( 'path' => 'taxonomies', 'score_mode' => 'max', 'query' => $mm( array( 'taxonomies.terms' ) ) ) ),
+				),
+				'minimum_should_match' => 1,
+			),
+		);
+	}
+
+	/**
+	 * Decide whether the last word was typed incomplete.
+	 *
+	 * Expanding every last word as a prefix is wrong: on the brasiliana3, "arte"
+	 * would jump from 551 to 6,337 items (artigo, artilharia, artista…) and "rio"
+	 * from 2,965 to 9,414. So the expansion only happens when
+	 *  - the last word, on its own, finds nothing ("fotogr", "litogr", "xilog"), or
+	 *  - the whole search finds nothing (someone still typing: "retrato de mul").
+	 * Partial words that happen to be stems ("pint", "tesour") already match.
+	 */
+	private static function wants_prefix( string $s ): bool {
+		$words = preg_split( '/\s+/u', trim( $s ) );
+		$last  = self::fold_word( (string) end( $words ) );
+		if ( mb_strlen( $last ) < 3 || null === self::$count_probe ) {
+			return false;
+		}
+		// Exact match only: with typo tolerance on, "fotogr" would "exist" by similarity.
+		$alone = self::probe( self::text_match( $last, null, false ) );
+		if ( null === $alone ) {
+			return false;
+		}
+		if ( 0 === $alone ) {
+			return true;
+		}
+		return count( $words ) > 1 && 0 === self::probe( self::text_match( $s, null, false ) );
+	}
+
+	/**
+	 * All words but the last as usual; the last one as the start of a word.
+	 *
+	 * `match_phrase_prefix` analyzes the fragment with the field's own search
+	 * analyzer, so "fotogr" is compared with the indexed stems and `fotogr*`
+	 * finds "fotograf" (fotografia, fotográfico, fotógrafo, fotografias).
+	 */
+	private static function prefix_query( string $s ): array {
+		$words = preg_split( '/\s+/u', trim( $s ) );
+		$last  = self::fold_word( (string) array_pop( $words ) );
+		$pp    = function ( string $field ) use ( $last ): array {
+			return array( 'match_phrase_prefix' => array( $field => array( 'query' => $last, 'max_expansions' => 200 ) ) );
+		};
+		$last_clause = array(
+			'bool' => array(
+				'should'               => array(
+					$pp( 'title' ),
+					$pp( 'description' ),
+					$pp( 'content' ),
+					array( 'nested' => array( 'path' => 'metadata', 'query' => $pp( 'metadata.value_text' ) ) ),
+					array( 'nested' => array( 'path' => 'taxonomies', 'query' => $pp( 'taxonomies.terms' ) ) ),
+				),
+				'minimum_should_match' => 1,
+			),
+		);
+		if ( empty( $words ) ) {
+			return $last_clause;
+		}
+		return array( 'bool' => array( 'must' => array( self::text_match( implode( ' ', $words ) ), $last_clause ) ) );
+	}
+
+	private static function fold_word( string $w ): string {
+		$w = remove_accents( mb_strtolower( $w, 'UTF-8' ) );
+		return (string) preg_replace( '/[^a-z0-9]/', '', $w );
+	}
+
+	/**
+	 * @return int|null Null when the probe is unavailable or failed.
+	 */
+	private static function probe( array $clause ): ?int {
+		$key = md5( (string) wp_json_encode( $clause ) );
+		if ( ! array_key_exists( $key, self::$probe_cache ) ) {
+			try {
+				self::$probe_cache[ $key ] = call_user_func( self::$count_probe, $clause );
+			} catch ( \Throwable $e ) {
+				self::$probe_cache[ $key ] = null;
+			}
+		}
+		return self::$probe_cache[ $key ];
+	}
+
+	/** Setting "Completar palavras" (on by default). */
+	private static function prefix_enabled(): bool {
+		$all = Settings::all();
+		return ! empty( $all['search_prefix'] );
 	}
 
 	/**

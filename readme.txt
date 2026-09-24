@@ -4,7 +4,7 @@ Tags: tainacan, elasticsearch, opensearch, search, indexing, synonyms
 Requires at least: 6.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.3.0
+Stable tag: 1.3.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -49,6 +49,14 @@ Não. O vocabulário só muda o analisador de busca. O índice fica fechado por 
 A busca degrada automaticamente para SQL, o semáforo fica vermelho, um alerta é levantado e o evento é registrado nos logs.
 
 == Changelog ==
+
+= 1.3.1 =
+* A busca por texto passa a procurar também nos metadados e termos de taxonomia (estavam de fora por serem campos `nested`).
+* Nova opção **Completar palavras** (ligada por padrão): "fotogr" encontra fotografia, fotográfico e fotógrafo. Só age quando a última palavra não existe no acervo ou a busca inteira não acha nada, para não transformar "arte" em artigo e artilharia.
+* Busca aproximada usa `AUTO:5,8`: palavras de até 4 letras ficam exatas.
+* O testador do vocabulário compara "sem o vocabulário" com o que a busca do site responde de fato.
+* Criar, fechar, abrir e configurar índice usam tempo limite de 120 s; aplicar o vocabulário não pode ser interrompido com o índice fechado.
+* Ferramentas em `tools/vocabulario/` para gerar as listas a partir do acervo.
 
 = 1.3.0 =
 * Semáforo do Elasticsearch no topo das três telas, com verificações de conexão, índice, cobertura, fila e respostas recentes pelo SQL; a cor também aparece como ponto no menu.
