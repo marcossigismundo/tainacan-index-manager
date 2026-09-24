@@ -131,13 +131,24 @@ final class ES_Query_Builder {
 		// Free-text search.
 		$s = trim( (string) ( $args['s'] ?? '' ) );
 		if ( '' !== $s ) {
-			$must[] = array(
-				'multi_match' => array(
-					'query'    => $s,
-					'fields'   => array( 'title^3', 'description^2', 'content', 'metadata.value_text', 'taxonomies.terms' ),
-					'operator' => 'and',
-				),
+			$match = array(
+				'query'    => $s,
+				'fields'   => array( 'title^3', 'description^2', 'content', 'metadata.value_text', 'taxonomies.terms' ),
+				'operator' => 'and',
+				// A multi-word synonym ("rio de janeiro, rj") would otherwise become a
+				// phrase query. Stopwords leave position gaps in the index ("rio _
+				// janeiro"), so the phrase never matches and the expansion loses the
+				// very documents it was meant to find. Measured on a lab index: with
+				// the phrase, "rio de janeiro" missed "Vista do Rio de Janeiro".
+				'auto_generate_synonyms_phrase_query' => false,
 			);
+			if ( self::typo_tolerance_enabled() ) {
+				// AUTO = 0 edits up to 2 letters, 1 up to 5, 2 beyond. The first letter
+				// must match, which keeps the expansion cheap and the results sane.
+				$match['fuzziness']     = 'AUTO';
+				$match['prefix_length'] = 1;
+			}
+			$must[] = array( 'multi_match' => $match );
 		}
 
 		// Explicit ID restrictions.
@@ -194,6 +205,16 @@ final class ES_Query_Builder {
 		}
 
 		return array( 'bool' => $bool );
+	}
+
+	/**
+	 * Whether free-text search should accept small typos (setting "Tolerância a
+	 * erros de digitação"). Read from the option directly: the builder is static
+	 * and WordPress already caches the autoloaded option for the request.
+	 */
+	private static function typo_tolerance_enabled(): bool {
+		$all = Settings::all();
+		return ! empty( $all['search_typo_tolerance'] );
 	}
 
 	/**

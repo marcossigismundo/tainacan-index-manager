@@ -2,13 +2,13 @@
 
 ## O que é o plugin
 
-Plugin WordPress que substitui o ElasticPress como camada de aceleração do Tainacan em coleções grandes, sem depender dele: indexa os itens no próprio Elasticsearch/OpenSearch e roteia listagem, facetas e busca do Tainacan pelo índice, com fallback automático para SQL sempre que a tradução não puder ser feita com fidelidade total ou o ES falhar. Traz também um painel de saúde (`Tainacan > Saúde da Busca`) e um indexador próprio com fila, retry e métricas.
+Plugin WordPress que acelera o Tainacan em coleções grandes sem depender de plugins de indexação de terceiros: indexa os itens no próprio Elasticsearch/OpenSearch e roteia listagem, facetas e busca do Tainacan pelo índice, com fallback automático para SQL sempre que a tradução não puder ser feita com fidelidade total ou o ES falhar. Traz também um painel com semáforo (`Tainacan > Outros > Gestão da Indexação`), o vocabulário da busca (sinônimos etc.) e um indexador próprio com fila, retry e métricas.
 
 O README cobre a arquitetura em detalhe (schema do índice, tradução de queries, endpoints REST). Este arquivo registra o que não está no código nem no README: o estado real em produção, decisões tomadas sob pressão de um diagnóstico ao vivo, e os bugs que só apareceram rodando contra dados reais.
 
 ## Versão atual e onde está o trabalho
 
-**v1.2.0** — branch `feat/es-routing-facetas` (ainda não mesclado em `main`), 10 commits. Repositório: `github.com/marcossigismundo/tainacan-index-manager`.
+**v1.3.0** — branch `feat/es-routing-facetas` (ainda não mesclado em `main`); a 1.3.0 está na seção "1.3.0: semáforo, menu em Outros, vocabulário da busca", no fim deste arquivo. Repositório: `github.com/marcossigismundo/tainacan-index-manager`.
 
 Este branch é o resultado de uma sessão de diagnóstico + implementação ao vivo em produção (`agregador.museus.gov.br`, ~37 mil itens, 1 coleção principal). Antes dele, o plugin tinha índice populado e **nunca usado** — ver seção "Como chegamos aqui".
 
@@ -18,7 +18,7 @@ O plugin roda hoje em **duas instalações**: o agregador (produção) e o `bras
 
 O pedido foi "por que o Tainacan continua lento mesmo com o plugin instalado". A causa raiz tinha duas camadas:
 
-1. **Configuração**: `engine` estava em `elasticpress`, mas o plugin ElasticPress **não estava ativo** no site. O código antigo de `Search_Integration` via esse valor e se desligava por completo ("ElasticPress vai cuidar disso") — só que ninguém cuidava. Toda busca caía em SQL puro, com o índice ES parado ao lado, populado e inútil.
+1. **Configuração**: `engine` estava num valor que delegava a busca a um plugin de indexação de terceiros, que **não estava ativo** no site. O código antigo de `Search_Integration` via esse valor e se desligava por completo ("o outro plugin vai cuidar disso") — só que ninguém cuidava. Toda busca caía em SQL puro, com o índice ES parado ao lado, populado e inútil.
 2. **Arquitetural**: mesmo corrigindo o `engine`, o roteamento antigo só interceptava `is_search()` com `s` não vazio — ou seja, só a caixa de busca por palavra-chave. A navegação de coleção (abrir a coleção, aplicar facetas) nunca passava por `is_search()`, então o gargalo real — os JOINs de `postmeta`/termos por trás de facetas e listagem — nunca era tocado.
 
 Achados secundários no mesmo diagnóstico: o índice tinha ~71 mil documentos para ~28 mil itens reais (documentos órfãos de itens já excluídos, nunca removidos porque a exclusão falhava silenciosamente), `_stats` reportava contagem de documentos Lucene (inclui um por sub-objeto `nested`) em vez de documentos reais, e o indexador rodava de forma agressiva sem que nada disso acelerasse coisa alguma.
@@ -49,7 +49,7 @@ Vale registrar estes porque o padrão se repetiu: cada um só apareceu ao medir 
 
 ## Simplificação do `engine`: `elasticsearch` / `sql`
 
-O campo tinha quatro valores (`auto`, `elasticpress`, `own_indexer`, `disabled`) que descreviam **quem monta o índice**, não **quem responde a consulta** — daí a confusão real do usuário do plugin ("por que não estou usando o ElasticPress?" quando `own_indexer` já *é* Elasticsearch, só que sem depender do plugin ElasticPress). Reduzido a dois: `elasticsearch` (índice deste plugin responde) e `sql` (nada é roteado). Suspender o roteamento enquanto o ElasticPress estiver ativo continua existindo, mas como segurança interna automática (dois plugins reescrevendo a mesma `WP_Query` entregam o resultado de quem rodar primeiro), não como opção que o usuário escolhe.
+O campo tinha quatro valores que descreviam **quem monta o índice**, não **quem responde a consulta** — daí a confusão real do usuário do plugin (`own_indexer` já *é* Elasticsearch, e o valor que delegava a outro plugin parecia "o Elasticsearch de verdade"). Reduzido a dois: `elasticsearch` (índice deste plugin responde) e `sql` (nada é roteado). Na 1.3.0 saiu também a detecção de plugin de terceiros (a pedido do Marcos, sem nenhuma menção no código): a única proteção contra dois plugins reescrevendo a mesma `WP_Query` é a checagem genérica `null !== $posts` no início de `posts_pre_query`.
 
 Valores antigos são migrados **na leitura** (`Settings::normalize_engine()`), não só ao salvar — uma instalação existente continua funcionando com o valor legado no banco, sem exigir reconfiguração nem esperar a próxima gravação.
 
@@ -59,9 +59,9 @@ Levantado em 22/09/2026 investigando o alerta YELLOW no brasiliana3. Um único E
 
 **É um cluster de um nó só** (`number_of_nodes: 1`). Consequência estrutural: qualquer índice criado com `number_of_replicas >= 1` deixa todas as réplicas `UNASSIGNED` para sempre, porque não existe segundo nó onde alocá-las. O cluster fica **YELLOW permanente, com a busca 100% funcional**. Vale gravar a definição, porque ela é o que autoriza tratar isso como benigno: `YELLOW` significa que **todos os shards primários estão alocados**; num nó único, portanto, só pode estar faltando réplica. `RED` é que é perda real.
 
-Dos 19 índices vivos no cluster, **três** são deste plugin (`brasiliana3_items_v1`, `tainacan_items`, `tainacan_items_v2`) — todos criados com `number_of_replicas: 0` em `Index_Manager::index_definition()`, portanto sempre green. Os demais são de outros sistemas: `*-post-1` é convenção de nome do **ElasticPress** (de `agregadormuseusgovbr`, `mhnacervosmuseusgovbr`, `brasilianahmuseusgovbr`, `wptwordpressmuseusgovbr`), `atom_*` é do AtoM, e `brasiliana_lod_vetores` é do plugin brasiliana-lod.
+Dos 19 índices vivos no cluster, **três** são deste plugin (`brasiliana3_items_v1`, `tainacan_items`, `tainacan_items_v2`) — todos criados com `number_of_replicas: 0` em `Index_Manager::index_definition()`, portanto sempre green. Os demais são de outros sistemas: `*-post-1` é a convenção de nome de um plugin de indexação de terceiros usado por outros sites (de `agregadormuseusgovbr`, `mhnacervosmuseusgovbr`, `brasilianahmuseusgovbr`, `wptwordpressmuseusgovbr`), `atom_*` é do AtoM, e `brasiliana_lod_vetores` é do plugin brasiliana-lod.
 
-Os 10 shards não alocados que disparavam o alerta eram réplicas de dois índices do ElasticPress (`agregadormuseusgovbr-post-1`, vazio desde 07/05/2026, e `mhnacervosmuseusgovbr-post-1`, 1,5 M docs e 5,1 M buscas). Nenhum pod do nó tinha o ElasticPress ativo — são resíduo de sites que largaram o plugin. Resolvido com `PUT _settings {"number_of_replicas":0}` nos dois: cluster foi a GREEN, e zerar réplica **não apaga nada**, porque um shard `UNASSIGNED` não existe em disco — é só a expectativa de uma segunda cópia que nunca pôde ser criada. Se o ElasticPress voltar a ser ativado e recriar os índices do zero, ele pede réplica de novo; correção permanente seria um index template no cluster.
+Os 10 shards não alocados que disparavam o alerta eram réplicas de dois índices `*-post-1` (`agregadormuseusgovbr-post-1`, vazio desde 07/05/2026, e `mhnacervosmuseusgovbr-post-1`, 1,5 M docs e 5,1 M buscas). Nenhum pod do nó tinha o plugin que os criou ativo — são resíduo de sites que o largaram. Resolvido com `PUT _settings {"number_of_replicas":0}` nos dois: cluster foi a GREEN, e zerar réplica **não apaga nada**, porque um shard `UNASSIGNED` não existe em disco — é só a expectativa de uma segunda cópia que nunca pôde ser criada. Se esse plugin voltar a ser ativado e recriar os índices do zero, ele pede réplica de novo; correção permanente seria um index template no cluster.
 
 **Armadilha de contagem:** `_cat/indices` e `_stats` reportam docs do Lucene, que inclui um documento por sub-objeto `nested`. O `brasiliana3_items_v1` aparece com 1.627.832 docs para ~74 mil itens reais. O `index_doc_count` do snapshot não cai nessa: ele vem de `_count`, que conta só documentos-raiz (74.401). Qualquer conferência feita direto no `_cat` ou no `_stats` engana — foi o mesmo erro que fazia a cobertura ler 5000%+ antes da 1.2.0.
 
@@ -98,7 +98,7 @@ Dois detalhes práticos confirmados em 22/09/2026:
 
 Conferido em 22/09/2026, com o painel corrigido já em pé (deploy manual dos quatro arquivos, md5 conferido, `php -l` no servidor, `touch` no arquivo principal):
 
-- `engine=elasticsearch`, `index_name=brasiliana3_items_v1`, ElasticPress **não** ativo (`EP_VERSION` indefinido), `effective_engine=elasticsearch` — o roteamento está de fato respondendo.
+- `engine=elasticsearch`, `index_name=brasiliana3_items_v1`, `effective_engine=elasticsearch` — o roteamento está de fato respondendo.
 - `index_status=green`, `cluster_status=green`, `single_node_cluster=true`, `overall_status=ok`, **zero alertas**.
 - 74.401 docs no índice para 74.123 itens no Tainacan → cobertura 100,38%. Os **278 documentos a mais são órfãos**: mesmo padrão já registrado no agregador (item excluído cuja remoção do índice falhou). A `divergence_pct` é calculada como `max(0, 100 - coverage)`, então excesso **não** dispara alerta nenhum — divergência por sobra é invisível no painel, de propósito ou não. Vale decidir.
 - Backup dos arquivos substituídos em `/tmp/tim-bkp-20260922/` dentro do contêiner `wp-brasili-3` (volátil, some no próximo restart do pod).
@@ -115,4 +115,33 @@ Conferido em 22/09/2026, com o painel corrigido já em pé (deploy manual dos qu
 - **278 documentos órfãos no `brasiliana3_items_v1`** e divergência por excesso invisível no painel (ver seção acima).
 - `agregadormuseusgovbr-post-1` continua no cluster, vazio desde 07/05/2026 — candidato a remoção, decisão do Marcos.
 - Sem index template no cluster: índice novo criado por outro sistema com réplica traz o YELLOW de volta (agora sem afetar o painel deste plugin, que passou a olhar o próprio índice).
-- Trabalho em aberto na árvore, **não commitado**: `ES_Query_Builder` ganhou o docblock e as constantes `STATUS_PROBE_TTL`/`STATUS_PROBE_PREFIX` do teste "nenhum post usa estes status", mas **o método que as usa ainda não existe** — as constantes estão órfãs. Motivação: na coleção de 74 mil itens a listagem do admin pede `pending` junto com os outros status, e desistir por causa dele jogava tudo no SQL (24 s para 12 itens, lista aparecendo vazia).
+- Trabalho em aberto, **não commitado e guardado no `git stash`** ("WIP status probe", desde 24/09/2026, para não entrar no commit da 1.3.0 — recuperar com `git stash pop`): `ES_Query_Builder` ganhou o docblock e as constantes `STATUS_PROBE_TTL`/`STATUS_PROBE_PREFIX` do teste "nenhum post usa estes status", mas **o método que as usa ainda não existe** — as constantes estão órfãs. Motivação: na coleção de 74 mil itens a listagem do admin pede `pending` junto com os outros status, e desistir por causa dele jogava tudo no SQL (24 s para 12 itens, lista aparecendo vazia).
+
+## 1.3.0: semáforo, menu em Outros, vocabulário da busca (24/09/2026)
+
+Pedido do Marcos: semáforo "bonito e funcional" do Elasticsearch; o plugin como subitem de **Outros** no menu do Tainacan, como padrão; nenhuma menção a plugin de indexação de terceiros no código; upload de sinônimos, parônimos e afins muito bem explicado; instalar no brasiliana3; commit e push.
+
+- **Semáforo** (`Traffic_Light`): uma classe só decide a cor para a tela, o cron e o ponto do menu, então os três nunca discordam. O menu lê a cor guardada na option `tainacan_idxmgr_light` — montar o menu nunca chama o ES. Fallback para SQL nos últimos 15 min pinta amarelo; o vocabulário é só informativo.
+- **Menu**: as três páginas vão para `tainacan_other_links` por padrão; `menu_location=root` leva para o menu raiz.
+- **Vocabulário** (`Search_Vocabulary`): o ES do IBRAM é 8.6, **sem** a API de sinônimos (8.10+). Caminho escolhido: sinônimos inline no analisador de busca + fechar/`PUT _settings`/reabrir. Funciona em qualquer ES e no OpenSearch, e não exige reindexar porque o analisador de indexação não muda.
+- A ordem dos filtros foi decidida **medindo** num índice de laboratório (`tim_vocab_lab`, apagado depois), não por leitura de documentação. Achados:
+  - sinônimo antes do stemmer não pega plural;
+  - `asciifolding_preserve` antes do sinônimo invalida regras;
+  - palavra vazia dentro de um termo ("rio de janeiro") faz o ES **descartar a regra em silêncio** com `lenient: true`;
+  - sem `auto_generate_synonyms_phrase_query: false`, a expansão vira frase e perde documentos.
+  Tudo isso está no docblock da classe e no README.
+- Antes de tocar o índice real, `apply()` ensaia a definição estrita (`lenient: false`) num índice temporário `<índice>-vocab-check` e o apaga. O índice real é reaberto sempre, mesmo se o `PUT` falhar.
+- **Medido no brasiliana3**: o índice fica fechado **4,7 s**, e a aplicação inteira leva ~13 s (a maior parte é o ensaio). A busca pública seguiu pelo ES (`query_total` +1 por consulta, sem fallback), ~0,3 s. Efeito real: "photographia" 10 → 1.494 itens, "Brazil" 972 → 5.409, "estampa" 677 → 852, "rio de janeiro" 1.124 → 1.268. A busca aproximada ("fotgrafia" → 1.554) foi testada ligada e **deixada desligada** (padrão).
+- **Estado do brasiliana3 após a instalação:** a 1.3.0 está ativa, com um vocabulário de exemplo aplicado (8 regras):
+  - gravura/estampa;
+  - aquarela/aguarela;
+  - quadro/pintura/tela;
+  - photographia/fotografia;
+  - pharmacia/farmácia;
+  - Brazil/Brasil;
+  - rio de janeiro/rj;
+  - previlégio ⇒ privilégio.
+
+  Cabe à equipe de acervo revisar ou apagar essas regras. O backup dos arquivos da 1.2.0 está em `/root/tim-bkp-20260924-155002/` no nó 172.30.11.99.
+- A tela de admin não foi vista logada: foi renderizada localmente, no Edge headless, com respostas reais da API do brasiliana3. Os templates Vue foram compilados com `@vue/compiler-dom@3.4.27`, sem erro.
+- `uninstall.php` foi corrigido de passagem: o autoloader dependia de `TAINACAN_INDEX_MANAGER_DIR`, que não existe na desinstalação.

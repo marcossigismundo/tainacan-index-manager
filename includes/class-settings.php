@@ -32,11 +32,10 @@ final class Settings {
 	/**
 	 * Reduce any stored engine value to one of the two supported modes.
 	 *
-	 * Earlier versions offered `auto`, `own_indexer` and `elasticpress`, which
-	 * described *who builds the index* rather than *which engine answers the
-	 * query* — a distinction that reliably confused people, not least because
-	 * picking `elasticpress` on a site without the ElasticPress plugin active
-	 * silently meant "nobody handles search" and everything fell back to SQL.
+	 * Earlier versions offered more values, which described *who builds the
+	 * index* rather than *which engine answers the query* — a distinction that
+	 * reliably confused people. Anything that is not explicitly SQL means
+	 * "search served by Elasticsearch".
 	 *
 	 * Legacy values are mapped here rather than in the sanitizer alone, so a
 	 * stored value keeps working without waiting for the option to be rewritten.
@@ -54,9 +53,6 @@ final class Settings {
 			case self::ENGINE_ELASTICSEARCH:
 			case 'own_indexer':
 			case 'auto':
-			// `elasticpress` meant "delegate to that plugin". With the option gone,
-			// the intent it expressed — search served by Elasticsearch — maps here.
-			case 'elasticpress':
 			default:
 				return self::ENGINE_ELASTICSEARCH;
 		}
@@ -95,6 +91,11 @@ final class Settings {
 			'route_facets'              => true,
 			'facet_max_terms'           => 300,
 			'log_retention_days'        => 30,
+			// Where the panel lives in Tainacan's admin sidebar: under "Outros"
+			// (the default, alongside the other maintenance tools) or in the root menu.
+			'menu_location'             => 'other',
+			// Accept one or two wrong letters in free-text search (ES fuzziness AUTO).
+			'search_typo_tolerance'     => false,
 			'last_index_run_ts'         => 0,
 			'last_health_check_ts'      => 0,
 		);
@@ -236,6 +237,10 @@ final class Settings {
 				$v       = is_string( $v ) ? $v : 'hourly';
 				return in_array( $v, $allowed, true ) ? $v : 'hourly';
 
+			case 'menu_location':
+				return 'root' === $v ? 'root' : 'other';
+
+			case 'search_typo_tolerance':
 			case 'auto_indexing_enabled':
 			case 'alert_email_enabled':
 			case 'alert_dashboard_enabled':

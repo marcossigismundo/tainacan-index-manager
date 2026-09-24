@@ -2,9 +2,9 @@
 
 Plugin WordPress integrado ao [Tainacan](https://tainacan.org/) que oferece:
 
-- Painel **Tainacan > Saúde da Busca** com indicadores de cluster, índice, cobertura e divergência.
+- Painel **Tainacan > Outros > Gestão da Indexação** com um **semáforo** do Elasticsearch (verde / amarelo / vermelho / desligado) e indicadores de índice, cobertura e divergência. A cor também aparece como ponto ao lado do item de menu.
+- **Vocabulário da busca**: sinônimos, grafias e variantes, correções e parônimos e palavras ignoradas, carregados na tela ou por `.txt`/`.csv`, aplicados ao analisador de busca **sem reindexar**. Busca aproximada (erros de digitação) opcional.
 - Monitoramento periódico (WP-Cron) de **Elasticsearch** e **OpenSearch**.
-- Suspende o próprio roteamento (por segurança, não como recurso) enquanto o **ElasticPress** estiver ativo, com observação somente-leitura do estado dele.
 - **Indexador próprio** com mappings/analyzers otimizados para português brasileiro, processamento em lote e controle pausar/retomar/cancelar.
 - Roteamento da **listagem de itens e das facetas** do Tainacan para o índice, com **fallback automático para SQL** quando o ES falha.
 - Sistema de **alertas** (painel + e-mail) e **logs** com tabela própria e retenção configurável.
@@ -68,8 +68,8 @@ A partir da versão 1.1.0 o plugin estende `\Tainacan\Pages` (introduzida no Tai
 o procedimento oficial documentado em
 [creating-tainacan-admin-pages](https://tainacan.github.io/tainacan-wiki/#/dev/creating-tainacan-admin-pages):
 
-- **Saúde da Busca** entra como item do menu raiz do Tainacan (posição 60) via `$this->tainacan_root_menu_slug`.
-- **Configurações de Indexação** entra no submenu "Outros" (`$this->tainacan_other_links_slug`).
+- As três páginas — **Gestão da Indexação** (painel + semáforo), **Vocabulário da busca** e **Configurações da Indexação** — entram no submenu **"Outros"** (`$this->tainacan_other_links_slug`) por padrão. A opção `menu_location = root` (Configurações > Menu) as leva para o menu raiz (`$this->tainacan_root_menu_slug`); o pai é decidido em `Admin_Page::tainacan_parent_slug()`.
+- O rótulo do painel carrega `<span class="tim-menu-dot is-{cor}">`, com a última cor que o `Traffic_Light` guardou na option `tainacan_idxmgr_light` — montar o menu nunca consulta o Elasticsearch. O Tainacan passa os rótulos por `wp_kses(…, 'tainacan_menu_link')`, que preserva `span` com `class`/`title`.
 - Ícones via `Tainacan_Icon::svg()`, não o `$this->get_svg_icon()` do trait nativo:
   o trait chama `file_get_contents()` sem checar se o arquivo existe, e os ícones
   `chart`/`dashboard` não existem nem no Tainacan 1.0.3 nem no 1.1.0 — o warning
@@ -101,7 +101,8 @@ includes/
 ├── class-indexer-metrics.php        Throughput / ETA / success rate / histórico de runs
 ├── class-health-service.php         Snapshot (cluster + índice + cobertura) com transient 60s
 ├── class-collections-monitor.php    Cobertura por coleção (transient 300s)
-├── class-elasticpress-integration.php  Detecção e leitura do estado do EP
+├── class-traffic-light.php          Semáforo: snapshot + fila + fallback → cor e verificações
+├── class-search-vocabulary.php      Sinônimos/variantes/correções/palavras ignoradas → analisador de busca
 ├── class-es-query-builder.php       WP_Query args → DSL do ES (tudo-ou-nada)
 ├── class-search-integration.php     posts_pre_query → ES, com fallback SQL
 ├── class-facets-integration.php     Facetas via agregação, com fallback SQL
@@ -141,17 +142,15 @@ A fila do indexador é uma lista de IDs em **uma única opção** (`tainacan_idx
 casamento textual, e sim os JOINs em `postmeta`/termos que sustentam a navegação e
 os filtros de faceta — por isso o gancho não se limita mais a `is_search()`.
 
-- Stand-down completo quando `engine` = `sql`, ou enquanto o plugin ElasticPress
-  estiver ativo — este último por segurança, não por preferência: dois plugins
-  reescrevendo a mesma `WP_Query` entregam o resultado de quem rodar primeiro.
+- Stand-down completo quando `engine` = `sql`. Se outro plugin já curto-circuitou
+  a mesma `WP_Query` (valor não-nulo em `posts_pre_query`), a resposta dele é
+  mantida — dois plugins reescrevendo a mesma consulta entregariam o resultado de
+  quem rodasse primeiro.
 
-> **Modos.** Até a 1.2.0 o campo oferecia `auto`, `own_indexer` e `elasticpress`,
-> que descreviam *quem monta o índice* e não *quem responde a consulta*. Isso
-> confundia: escolher `elasticpress` num site sem o plugin ElasticPress ativo
-> significava, na prática, "ninguém cuida da busca" — e tudo caía em SQL com o
-> índice parado ao lado. Restam dois modos, e valores antigos são migrados na
-> leitura (`auto`/`own_indexer`/`elasticpress` → `elasticsearch`,
-> `disabled` → `sql`), sem exigir reconfiguração.
+> **Modos.** Até a 1.2.0 o campo oferecia mais valores, que descreviam *quem
+> monta o índice* e não *quem responde a consulta*, e confundiam. Restam dois
+> modos, e qualquer valor antigo é migrado na leitura (`disabled` → `sql`, o
+> resto → `elasticsearch`), sem exigir reconfiguração.
 - Atende navegação de coleção, filtros de faceta e busca textual.
 - Filtra `post_status` (padrão `publish`). Sem isso, documentos defasados no índice
   — itens já excluídos, ainda marcados como `draft` — podiam aparecer publicamente.
@@ -273,9 +272,70 @@ POST   /logs/clear
 GET    /logs/export
 GET    /alerts
 POST   /alerts/clear
-GET    /elasticpress
-POST   /elasticpress/sync               (WP-CLI required)
+GET    /status                          (semáforo; args.refresh)
+GET    /vocabulary                      (listas, relatório de validação, vocabulário em uso)
+POST   /vocabulary                      (salva rascunho: { lists: {synonyms, variants, corrections, stopwords} })
+POST   /vocabulary/validate             (só valida, nada é gravado)
+POST   /vocabulary/apply                (salva e aplica ao índice; devolve as etapas)
+POST   /vocabulary/test                 (args.text; formas buscadas + contagem sem × com vocabulário)
 ```
+
+### Semáforo (`Traffic_Light`)
+
+Reduz o snapshot de saúde, a fila do indexador e a flag de fallback a uma cor:
+
+| Cor | Quando |
+|---|---|
+| **verde** | O índice está respondendo listagens, filtros e busca. |
+| **amarelo** | Responde, mas algo pede atenção: cobertura abaixo do limite, fila pausada ou parada, latência > 2 s, índice YELLOW (com 2+ nós) ou uma consulta caiu no SQL nos últimos 15 min. |
+| **vermelho** | As consultas estão indo para o SQL: sem configuração, sem conexão, índice ausente ou RED. |
+| **desligado** | `engine = sql` por escolha. |
+
+O vocabulário aparece como verificação informativa e nunca muda a cor. O cron de
+saúde reavalia o semáforo a cada tick; o painel consulta `/status` a cada 20 s
+(o snapshot tem cache de 60 s no servidor).
+
+### Vocabulário da busca (`Search_Vocabulary`)
+
+Quatro listas em texto puro (option `tainacan_idxmgr_vocabulary`), no formato de
+sinônimos do Solr que o Elasticsearch aceita:
+
+| Lista | Formato | Efeito |
+|---|---|---|
+| Sinônimos | `quadro, pintura, tela` | equivalência nos dois sentidos |
+| Grafias e variantes | `photographia, fotografia` | idem (ortografia antiga, estrangeirismos, siglas) |
+| Correções e parônimos | `excessão => exceção` | um sentido; a forma digitada é mantida (`excessão => excessão, exceção`) |
+| Palavras ignoradas | uma por linha | retiradas da pergunta antes de buscar |
+
+**Tudo age só na hora da busca**: as listas entram no analisador `tnc_pt_br_search`;
+o `tnc_pt_br` (indexação) não muda, então não há reindexação. A cadeia, medida num
+índice de laboratório no ES 8.6 do IBRAM:
+
+```
+standard → lowercase → asciifolding → brazilian_stop → [tnc_vocab_stop] → brazilian_stemmer → [tnc_vocab_synonyms]
+```
+
+- Sinônimos **depois do stemmer**: com eles antes, "fotografias" não disparava a regra escrita "fotografia".
+- `asciifolding` simples (não o `preserve_original` do índice): o ES analisa as regras pelos filtros anteriores, e tokens empilhados ali invalidam regras. O recall não muda, porque o índice sempre guarda também a forma sem acento.
+- Palavras ignoradas **antes do stemmer**, senão "museu" teria de ser escrita como o radical "mus".
+- Termo com palavra vazia no meio ("rio *de* janeiro") invalida a regra inteira. Antes de aplicar, todos os termos passam por `_analyze` num índice temporário (em lotes, separados por um token sentinela) e são gravados como o analisador os vê ("rio janeiro"); a tela lista cada ajuste.
+- A busca usa `auto_generate_synonyms_phrase_query: false`: sem isso, sinônimo de várias palavras vira busca por frase, e a lacuna deixada pela palavra vazia no índice fazia "rio de janeiro" perder "Vista do Rio de Janeiro".
+
+`apply()` segue etapas, todas devolvidas à tela: validar → normalizar termos
+(índice temporário `<índice>-vocab-check`) → ensaio estrito (`lenient: false`) no
+índice temporário, apagado em seguida → fechar o índice real → `PUT _settings` →
+reabrir (**sempre**, mesmo se a gravação falhar) → esperar YELLOW/GREEN → ler o
+analisador de volta e comparar. No índice real o filtro usa `lenient: true`, para
+que uma regra problemática nunca impeça o índice de abrir. No brasiliana3 (74 mil
+itens) o índice ficou fechado **4,7 s**; nesse intervalo as buscas caem no SQL e a
+flag de fallback desse período é descartada ao final. O ES 8.6 não tem a API de
+sinônimos (8.10+), por isso o caminho é fechar/abrir — que também funciona no OpenSearch.
+
+`Index_Manager::index_definition()` inclui o vocabulário aplicado, então
+recriar o índice não o perde.
+
+**Busca aproximada** (`search_typo_tolerance`, desligada por padrão): acrescenta
+`fuzziness: AUTO` e `prefix_length: 1` ao `multi_match`. Convive com os sinônimos.
 
 ### Indicadores de monitoramento da indexação
 
@@ -320,13 +380,6 @@ A `Indexer_Metrics` registra cada batch e expõe:
 - Registra submenus sob o slug do Tainacan (`tainacan_admin`, com fallback para `tainacan` / `tainacan-admin`).
 - Não modifica o núcleo do Tainacan, não sobrescreve hooks oficiais, não duplica capabilities.
 
-### Integração com ElasticPress
-
-- Detecta via `EP_VERSION` / `\ElasticPress\Elasticsearch`.
-- Lê estado via `Indexables::factory()->get_all()` e opções públicas (`ep_last_sync`, `ep_index_meta`).
-- Aciona sync via `WP_CLI::runcommand('elasticpress sync')` quando WP-CLI estiver disponível.
-- **Nunca** modifica configurações, índices ou mappings do EP.
-
 ### Segurança
 
 - Acesso direto bloqueado (`defined('ABSPATH') || exit`).
@@ -357,11 +410,12 @@ A `Indexer_Metrics` registra cada batch e expõe:
 6. Editar 1 item → reindex incremental via `save_post`.
 7. Filtrar busca no front → resultados vêm na ordem do `multi_match`; abrir o permalink de um item continua resolvendo o item certo (não a listagem da coleção).
 8. Forçar erro ES (parar serviço durante uma busca) → fallback SQL automático, log + alerta.
-9. EP ativo → roteamento deste plugin fica suspenso (segurança, não escolha do usuário) e a rota `/elasticpress` retorna snapshot de observação.
+9. Vocabulário → aplicar `photographia, fotografia`; o testador mostra o antes/depois e `GET /tainacan/v2/items?search=photographia` passa a devolver os itens com "fotografia" (no brasiliana3: 10 → 1.494), com `_stats/search.query_total` subindo 1 por consulta.
 
 ## Limitações conhecidas
 
-- A integração com ElasticPress hoje é **observação + trigger**; o plugin não estende facets/aggregations do EP.
+- O vocabulário vale para a busca por texto; filtros e facetas continuam exatos (por valor).
+- Quem buscar **só** palavras da lista de palavras ignoradas não encontra nada (o ES não sobra termo nenhum para procurar).
 - Facetas de metadados **Taxonomy, Relationship, User e Control** continuam em SQL: resolvem rótulos em outras tabelas e, no caso de taxonomia, dependem de hierarquia (`parent`, `total_children`, `hierarchy_path`) que o índice não modela.
 - Ordenação por metadado (`meta_value`, `meta_value_num`) e `orderby=rand` caem para SQL.
 - Paginação além de `index.max_result_window` (10.000 por padrão) cai para SQL.
@@ -370,7 +424,6 @@ A `Indexer_Metrics` registra cada batch e expõe:
 - Documentos órfãos (itens excluídos enquanto o ES estava fora do ar) só somem ao rodar `POST /index/purge-orphans`.
 - Item movido para a lixeira (`wp_trash_post`) não é removido do índice: o hook `before_delete_post` só dispara em exclusão permanente. Enquanto estiver na lixeira, o item continua indexado sob o `post_status` que tinha antes.
 - Metadados com mais valores distintos que `facet_max_terms` nunca são servidos pelo índice (ver seção de facetas) — a faceta correspondente sempre roda em SQL.
-- O acionamento de `elasticpress sync` exige WP-CLI; sem WP-CLI, o admin precisa rodar sync pela própria UI do EP.
 
 ## Melhorias futuras recomendadas
 

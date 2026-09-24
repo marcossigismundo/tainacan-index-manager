@@ -1,6 +1,6 @@
 <?php
 /**
- * Settings page extending \Tainacan\Pages.
+ * Search vocabulary page extending \Tainacan\Pages.
  *
  * @package TainacanIndexManager
  */
@@ -14,13 +14,13 @@ if ( ! class_exists( '\\Tainacan\\Pages' ) ) {
 }
 
 /**
- * Configurações de Indexação — settings page in Tainacan admin.
+ * Vocabulário da busca — synonyms, variants, corrections and ignored words.
  */
-class TIM_Settings_Page extends \Tainacan\Pages {
+class TIM_Vocabulary_Page extends \Tainacan\Pages {
 
 	use \Tainacan\Traits\Singleton_Instance;
 
-	public const SLUG = 'tainacan_idxmgr_settings';
+	public const SLUG = 'tainacan_idxmgr_vocabulary';
 
 	/**
 	 * Must remain `public` to match \Tainacan\Pages::init() visibility.
@@ -34,19 +34,19 @@ class TIM_Settings_Page extends \Tainacan\Pages {
 	}
 
 	public function add_admin_menu() {
-		$icon_svg = \TainacanIndexManager\Tainacan_Icon::svg( $this, array( 'settings', 'capability', 'edit' ) );
+		$icon_svg = \TainacanIndexManager\Tainacan_Icon::svg( $this, array( 'taxonomies', 'terms', 'search', 'metadata' ) );
 
 		$label = '<span class="icon">' . $icon_svg . '</span>'
-			. '<span class="menu-text">' . esc_html__( 'Configurações da Indexação', 'tainacan-index-manager' ) . '</span>';
+			. '<span class="menu-text">' . esc_html__( 'Vocabulário da busca', 'tainacan-index-manager' ) . '</span>';
 
 		$page_suffix = add_submenu_page(
 			\TainacanIndexManager\Admin_Page::tainacan_parent_slug( $this ),
-			__( 'Configurações de Indexação', 'tainacan-index-manager' ),
+			__( 'Vocabulário da busca', 'tainacan-index-manager' ),
 			$label,
 			'manage_options',
 			$this->get_page_slug(),
 			array( &$this, 'render_page' ),
-			62
+			61
 		);
 
 		if ( $page_suffix ) {
@@ -59,17 +59,17 @@ class TIM_Settings_Page extends \Tainacan\Pages {
 	}
 
 	public function admin_enqueue_js() {
-		\TainacanIndexManager\Admin_Page::enqueue_assets( 'settings' );
+		\TainacanIndexManager\Admin_Page::enqueue_assets( 'vocabulary' );
 	}
 
 	public function render_page_content() {
 		echo '<div class="wrap tainacan-page-container-content tainacan-idxmgr-wrap">';
 		echo '<div class="tainacan-fixed-subheader"><h1 class="tainacan-page-title">'
-			. esc_html__( 'Configurações de Indexação', 'tainacan-index-manager' )
+			. esc_html__( 'Vocabulário da busca', 'tainacan-index-manager' )
 			. '</h1></div>';
-		echo '<div id="tainacan-idxmgr-app" data-view="settings"></div>';
+		echo '<div id="tainacan-idxmgr-app" data-view="vocabulary"></div>';
 		echo '</div>';
 	}
 }
 
-TIM_Settings_Page::get_instance();
+TIM_Vocabulary_Page::get_instance();

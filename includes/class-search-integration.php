@@ -25,7 +25,8 @@ defined( 'ABSPATH' ) || exit;
  *  - Translation is all-or-nothing: {@see ES_Query_Builder} returns null for
  *    anything it cannot reproduce exactly, and we then let SQL run untouched.
  *  - Any ES failure degrades to SQL and raises the fallback flag.
- *  - When the engine is `elasticpress`, this class stands down completely.
+ *  - When the engine is `sql`, this class stands down completely.
+ *  - When another plugin already short-circuited the query, it is left alone.
  */
 final class Search_Integration {
 
@@ -36,7 +37,6 @@ final class Search_Integration {
 
 	private Settings $settings;
 	private Logger $logger;
-	private ElasticPress_Integration $elasticpress;
 	private Elasticsearch_Client $client;
 
 	/** Totals reported by ES, keyed by WP_Query object id, awaiting set_found_posts(). */
@@ -72,11 +72,10 @@ final class Search_Integration {
 		}
 	}
 
-	public function __construct( Settings $settings, Logger $logger, ElasticPress_Integration $elasticpress ) {
-		$this->settings     = $settings;
-		$this->logger       = $logger;
-		$this->elasticpress = $elasticpress;
-		$this->client       = new Elasticsearch_Client( $settings, $logger );
+	public function __construct( Settings $settings, Logger $logger ) {
+		$this->settings = $settings;
+		$this->logger   = $logger;
+		$this->client   = new Elasticsearch_Client( $settings, $logger );
 	}
 
 	public function register(): void {
@@ -273,19 +272,17 @@ final class Search_Integration {
 	 * Engine setting gate, shared by search and facet routing.
 	 */
 	public function engine_allows_routing(): bool {
-		if ( Settings::ENGINE_SQL === $this->settings->engine() ) {
-			return false;
-		}
+		return Settings::ENGINE_SQL !== $this->settings->engine();
+	}
 
-		// Safety, not a preference: ElasticPress rewrites the same queries, and two
-		// plugins short-circuiting one WP_Query produce whichever result happens to
-		// run first. Deliberately silent — this is evaluated on every query, so
-		// logging it would flood the log. The health snapshot surfaces the state.
-		if ( $this->elasticpress->is_active() ) {
-			return false;
-		}
-
-		return true;
+	/**
+	 * Most recent fallback to SQL, or null when routing has been answering.
+	 *
+	 * @return array{since:int, reason:string, detail:string}|null
+	 */
+	public function last_fallback(): ?array {
+		$flag = get_transient( self::FLAG_FALLBACK_ACTIVE );
+		return is_array( $flag ) ? $flag : null;
 	}
 
 	/**
@@ -505,6 +502,20 @@ final class Search_Integration {
 
 	private function clear_fallback(): void {
 		if ( false !== get_transient( self::FLAG_FALLBACK_ACTIVE ) ) {
+			delete_transient( self::FLAG_FALLBACK_ACTIVE );
+		}
+	}
+
+	/**
+	 * Forget a fallback recorded at or after `$since`.
+	 *
+	 * Applying the search vocabulary closes the index for a few seconds on
+	 * purpose; searches in that window fall back to SQL, as they should, but that
+	 * is not a fault to keep reporting on the status light for the next hour.
+	 */
+	public static function forget_fallback_since( int $since ): void {
+		$flag = get_transient( self::FLAG_FALLBACK_ACTIVE );
+		if ( is_array( $flag ) && (int) ( $flag['since'] ?? 0 ) >= $since ) {
 			delete_transient( self::FLAG_FALLBACK_ACTIVE );
 		}
 	}

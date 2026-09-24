@@ -24,7 +24,8 @@ final class REST_Controller {
 	private Indexer $indexer;
 	private Index_Manager $index_manager;
 	private Collections_Monitor $collections;
-	private ElasticPress_Integration $elasticpress;
+	private Search_Vocabulary $vocabulary;
+	private Traffic_Light $light;
 	private Logger $logger;
 	private Alerts $alerts;
 	private Indexer_Metrics $metrics;
@@ -36,7 +37,8 @@ final class REST_Controller {
 		Indexer $indexer,
 		Index_Manager $index_manager,
 		Collections_Monitor $collections,
-		ElasticPress_Integration $elasticpress,
+		Search_Vocabulary $vocabulary,
+		Traffic_Light $light,
 		Logger $logger,
 		Alerts $alerts,
 		Indexer_Metrics $metrics,
@@ -47,7 +49,8 @@ final class REST_Controller {
 		$this->indexer       = $indexer;
 		$this->index_manager = $index_manager;
 		$this->collections   = $collections;
-		$this->elasticpress  = $elasticpress;
+		$this->vocabulary    = $vocabulary;
+		$this->light         = $light;
 		$this->logger        = $logger;
 		$this->alerts        = $alerts;
 		$this->metrics       = $metrics;
@@ -243,16 +246,53 @@ final class REST_Controller {
 			'permission_callback' => $auth,
 		) );
 
-		register_rest_route( self::NAMESPACE, '/elasticpress', array(
+		register_rest_route( self::NAMESPACE, '/status', array(
 			'methods'             => \WP_REST_Server::READABLE,
-			'callback'            => array( $this, 'rest_get_elasticpress' ),
+			'callback'            => array( $this, 'rest_get_status' ),
+			'permission_callback' => $auth,
+			'args'                => array(
+				'refresh' => array(
+					'required'          => false,
+					'sanitize_callback' => 'rest_sanitize_boolean',
+				),
+			),
+		) );
+
+		register_rest_route( self::NAMESPACE, '/vocabulary', array(
+			array(
+				'methods'             => \WP_REST_Server::READABLE,
+				'callback'            => array( $this, 'rest_get_vocabulary' ),
+				'permission_callback' => $auth,
+			),
+			array(
+				'methods'             => \WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'rest_save_vocabulary' ),
+				'permission_callback' => $auth,
+			),
+		) );
+
+		register_rest_route( self::NAMESPACE, '/vocabulary/validate', array(
+			'methods'             => \WP_REST_Server::CREATABLE,
+			'callback'            => array( $this, 'rest_validate_vocabulary' ),
 			'permission_callback' => $auth,
 		) );
 
-		register_rest_route( self::NAMESPACE, '/elasticpress/sync', array(
+		register_rest_route( self::NAMESPACE, '/vocabulary/apply', array(
 			'methods'             => \WP_REST_Server::CREATABLE,
-			'callback'            => array( $this, 'rest_elasticpress_sync' ),
+			'callback'            => array( $this, 'rest_apply_vocabulary' ),
 			'permission_callback' => $auth,
+		) );
+
+		register_rest_route( self::NAMESPACE, '/vocabulary/test', array(
+			'methods'             => \WP_REST_Server::CREATABLE,
+			'callback'            => array( $this, 'rest_test_vocabulary' ),
+			'permission_callback' => $auth,
+			'args'                => array(
+				'text' => array(
+					'required'          => true,
+					'sanitize_callback' => 'sanitize_text_field',
+				),
+			),
 		) );
 	}
 
@@ -466,12 +506,50 @@ final class REST_Controller {
 		return rest_ensure_response( array( 'ok' => true ) );
 	}
 
-	public function rest_get_elasticpress(): \WP_REST_Response {
-		return rest_ensure_response( $this->elasticpress->snapshot() );
+	public function rest_get_status( \WP_REST_Request $req ): \WP_REST_Response {
+		return rest_ensure_response( $this->light->evaluate( (bool) $req->get_param( 'refresh' ) ) );
 	}
 
-	public function rest_elasticpress_sync(): \WP_REST_Response {
-		$ok = $this->elasticpress->trigger_sync();
-		return rest_ensure_response( array( 'ok' => $ok ) );
+	public function rest_get_vocabulary(): \WP_REST_Response {
+		return rest_ensure_response( $this->vocabulary->to_public_array() );
+	}
+
+	/**
+	 * The four lists arrive as `lists: {synonyms, variants, corrections, stopwords}`.
+	 */
+	private static function lists_from( \WP_REST_Request $req ): array {
+		$body  = $req->get_json_params();
+		$lists = is_array( $body ) && isset( $body['lists'] ) && is_array( $body['lists'] ) ? $body['lists'] : array();
+		return array_intersect_key( $lists, array_flip( Search_Vocabulary::LISTS ) );
+	}
+
+	public function rest_save_vocabulary( \WP_REST_Request $req ): \WP_REST_Response {
+		$report = $this->vocabulary->save( self::lists_from( $req ) );
+		$this->logger->info( Logger::CHAN_VOCABULARY, 'Rascunho do vocabulário salvo.', array( 'counts' => $report['counts'] ) );
+		return rest_ensure_response( array(
+			'ok'     => true,
+			'report' => $report,
+			'state'  => $this->vocabulary->to_public_array(),
+		) );
+	}
+
+	public function rest_validate_vocabulary( \WP_REST_Request $req ): \WP_REST_Response {
+		return rest_ensure_response( $this->vocabulary->parse( self::lists_from( $req ) )['report'] );
+	}
+
+	/**
+	 * Save whatever is on screen, then apply it. Saving first means what goes to
+	 * Elasticsearch is always exactly what the stored draft says.
+	 */
+	public function rest_apply_vocabulary( \WP_REST_Request $req ): \WP_REST_Response {
+		$lists = self::lists_from( $req );
+		if ( ! empty( $lists ) ) {
+			$this->vocabulary->save( $lists );
+		}
+		return rest_ensure_response( $this->vocabulary->apply() );
+	}
+
+	public function rest_test_vocabulary( \WP_REST_Request $req ): \WP_REST_Response {
+		return rest_ensure_response( $this->vocabulary->test( (string) $req->get_param( 'text' ) ) );
 	}
 }

@@ -45,11 +45,12 @@ class TIM_Dashboard_Page extends \Tainacan\Pages {
 	public function add_admin_menu() {
 		$icon_svg = \TainacanIndexManager\Tainacan_Icon::svg( $this, array( 'reports', 'chart', 'activities' ) );
 
-		$label = '<span class="icon">' . $icon_svg . '</span>'
-			. '<span class="menu-text">' . esc_html__( 'Gestão da Indexação', 'tainacan-index-manager' ) . '</span>';
+		// The label carries the status light's last colour, so the state of the
+		// search is visible from anywhere in Tainacan's admin.
+		$label = \TainacanIndexManager\Admin_Page::menu_label_with_light( $icon_svg, __( 'Gestão da Indexação', 'tainacan-index-manager' ) );
 
 		$page_suffix = add_submenu_page(
-			$this->tainacan_root_menu_slug,
+			\TainacanIndexManager\Admin_Page::tainacan_parent_slug( $this ),
 			__( 'Gestão da Indexação', 'tainacan-index-manager' ),
 			$label,
 			'manage_options',
@@ -64,35 +65,11 @@ class TIM_Dashboard_Page extends \Tainacan\Pages {
 	}
 
 	public function admin_enqueue_css() {
-		wp_enqueue_style(
-			'tainacan-idxmgr-admin',
-			TAINACAN_INDEX_MANAGER_URL . 'assets/css/admin.css',
-			array(),
-			TAINACAN_INDEX_MANAGER_VERSION
-		);
+		// Everything is enqueued together in admin_enqueue_js().
 	}
 
 	public function admin_enqueue_js() {
-		wp_register_script(
-			'tainacan-idxmgr-vue',
-			TAINACAN_INDEX_MANAGER_URL . 'assets/vendor/vue/vue.global.prod.js',
-			array(),
-			'3.4.27',
-			true
-		);
-		wp_register_script(
-			'tainacan-idxmgr-admin',
-			TAINACAN_INDEX_MANAGER_URL . 'assets/js/admin.js',
-			array( 'tainacan-idxmgr-vue' ),
-			TAINACAN_INDEX_MANAGER_VERSION,
-			true
-		);
-
-		wp_localize_script( 'tainacan-idxmgr-admin', 'TIMConfig', \TainacanIndexManager\Admin_Page::js_config( 'dashboard' ) );
-
-		wp_enqueue_script( 'tainacan-idxmgr-vue' );
-		wp_enqueue_script( 'tainacan-idxmgr-admin' );
-		wp_set_script_translations( 'tainacan-idxmgr-admin', 'tainacan-index-manager' );
+		\TainacanIndexManager\Admin_Page::enqueue_assets( 'dashboard' );
 	}
 
 	public function render_page_content() {

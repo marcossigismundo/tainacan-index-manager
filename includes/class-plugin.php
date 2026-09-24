@@ -25,7 +25,8 @@ final class Plugin {
 	private Indexer $indexer;
 	private Indexer_Metrics $metrics;
 	private Collections_Monitor $collections;
-	private ElasticPress_Integration $elasticpress;
+	private Search_Vocabulary $vocabulary;
+	private Traffic_Light $light;
 	private Diagnostics $diagnostics;
 	private Search_Integration $search;
 	private Facets_Integration $facets;
@@ -71,12 +72,13 @@ final class Plugin {
 			$this->index_manager = new Index_Manager( $this->settings, $this->logger );
 			$this->metrics       = new Indexer_Metrics( $this->settings );
 			$this->indexer       = new Indexer( $this->settings, $this->logger, $this->index_manager, $this->metrics );
-			$this->elasticpress  = new ElasticPress_Integration( $this->settings, $this->logger );
-			$this->search        = new Search_Integration( $this->settings, $this->logger, $this->elasticpress );
+			$this->vocabulary    = new Search_Vocabulary( $this->settings, $this->logger, $this->index_manager->client() );
+			$this->search        = new Search_Integration( $this->settings, $this->logger );
 			$this->facets        = new Facets_Integration( $this->settings, $this->logger, $this->search );
-			$this->diagnostics   = new Diagnostics( $this->settings, $this->health, $this->indexer, $this->metrics, $this->collections, $this->elasticpress, $this->logger );
-			$this->cron          = new Cron( $this->settings, $this->health, $this->indexer, $this->collections, $this->logger );
-			$this->rest          = new REST_Controller( $this->settings, $this->health, $this->indexer, $this->index_manager, $this->collections, $this->elasticpress, $this->logger, $this->alerts, $this->metrics, $this->diagnostics );
+			$this->light         = new Traffic_Light( $this->settings, $this->health, $this->indexer, $this->vocabulary, $this->search );
+			$this->diagnostics   = new Diagnostics( $this->settings, $this->health, $this->indexer, $this->metrics, $this->collections, $this->vocabulary, $this->logger );
+			$this->cron          = new Cron( $this->settings, $this->health, $this->indexer, $this->collections, $this->logger, $this->light );
+			$this->rest          = new REST_Controller( $this->settings, $this->health, $this->indexer, $this->index_manager, $this->collections, $this->vocabulary, $this->light, $this->logger, $this->alerts, $this->metrics, $this->diagnostics );
 			$this->admin         = new Admin_Page( $this->settings, $this->health, $this->logger, $this->alerts );
 
 			$this->cron->register();
@@ -125,7 +127,8 @@ final class Plugin {
 	public function metrics(): Indexer_Metrics     { return $this->metrics; }
 	public function index_manager(): Index_Manager { return $this->index_manager; }
 	public function collections(): Collections_Monitor { return $this->collections; }
-	public function elasticpress(): ElasticPress_Integration { return $this->elasticpress; }
+	public function vocabulary(): Search_Vocabulary { return $this->vocabulary; }
+	public function light(): Traffic_Light         { return $this->light; }
 
 	/**
 	 * Activation: create custom tables and seed defaults.

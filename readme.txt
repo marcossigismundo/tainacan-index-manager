@@ -1,63 +1,65 @@
 === Tainacan Index Manager ===
 Contributors: marcossigismundo
-Tags: tainacan, elasticsearch, opensearch, elasticpress, search, indexing
+Tags: tainacan, elasticsearch, opensearch, search, indexing, synonyms
 Requires at least: 6.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.1.9
+Stable tag: 1.3.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Painel de saúde da busca, monitoramento de Elasticsearch/OpenSearch, integração com ElasticPress e indexador próprio para repositórios Tainacan.
+Indexa o Tainacan no Elasticsearch/OpenSearch, responde listagens, filtros e buscas pelo índice, mostra um semáforo de funcionamento e deixa a equipe ensinar sinônimos à busca.
 
 == Description ==
 
-O Tainacan Index Manager integra-se ao Tainacan e oferece um painel completo para acompanhar a saúde da busca em grandes repositórios digitais.
+O Tainacan Index Manager mantém um índice próprio no Elasticsearch/OpenSearch e faz o Tainacan responder por ele listagens de coleção, filtros (facetas) e buscas por texto, voltando sozinho ao SQL sempre que o índice não puder responder com fidelidade.
 
 Recursos:
 
-* Painel "Tainacan > Saúde da Busca" com cards de status, indicadores e tabela de cobertura por coleção.
+* **Semáforo** do Elasticsearch no topo do painel (verde, amarelo, vermelho ou desligado), com as verificações que explicam a cor, e um ponto colorido ao lado do item de menu.
+* Painel em **Tainacan > Outros > Gestão da Indexação** (a posição pode ir para o menu principal em Configurações).
+* **Vocabulário da busca**: sinônimos, grafias antigas e variantes, correções e parônimos, palavras ignoradas — digitados na tela ou carregados de arquivos .txt/.csv, ensaiados num índice temporário e aplicados sem reindexar.
+* **Busca aproximada** opcional (tolera uma ou duas letras erradas).
 * Cliente seguro para Elasticsearch/OpenSearch baseado em wp_remote_* (Basic Auth ou API Key).
-* Monitoramento periódico (WP-Cron) de cluster_health, índices e divergência entre Tainacan e o índice.
-* Detecção automática do ElasticPress; quando ativo, o plugin opera em modo somente leitura sobre ele.
-* Indexador próprio em fallback, com mappings/analyzers otimizados para português brasileiro, processamento em lote, pausar/retomar/cancelar.
-* Reescrita opcional da busca do WordPress/Tainacan para usar o índice, com fallback automático para SQL quando o Elasticsearch falhar.
-* Sistema de alertas (painel + e-mail) com classificação informativo/atenção/crítico.
-* Tabela própria de logs (dbDelta), com retenção configurável.
+* Monitoramento periódico (WP-Cron) do índice e da divergência entre Tainacan e índice.
+* Indexador com mappings/analyzers para português brasileiro, processamento em lote, pausar/retomar/cancelar.
+* Sistema de alertas (painel + e-mail), logs em tabela própria com retenção configurável.
 * REST API protegida por nonce e cookie auth.
 
 == Installation ==
 
 1. Faça upload da pasta `tainacan-index-manager` para `wp-content/plugins/`.
 2. Ative o plugin no painel de Plugins do WordPress.
-3. Acesse **Tainacan > Configurações de Indexação** e informe URL/credenciais do seu Elasticsearch ou OpenSearch.
+3. Acesse **Tainacan > Outros > Configurações da Indexação** e informe URL/credenciais do seu Elasticsearch ou OpenSearch.
 4. Clique em **Testar conexão** e depois em **Criar índice**.
-5. Use **Indexar tudo** para popular o índice e abra **Tainacan > Saúde da Busca** para acompanhar.
+5. Use **Indexar tudo** para popular o índice e acompanhe pelo semáforo em **Tainacan > Outros > Gestão da Indexação**.
 
 == Frequently Asked Questions ==
 
 = O plugin funciona com Elasticsearch e OpenSearch? =
 
-Sim. Os endpoints utilizados (`/_cluster/health`, `/_stats`, `/_doc`, `/_bulk`, `/_search`, `/_count`, `/_refresh`) são compatíveis com ambos.
+Sim. Os endpoints usados são comuns aos dois. O vocabulário da busca usa sinônimos inline no analisador, o que funciona em qualquer versão (não depende da API de sinônimos do Elasticsearch 8.10+).
 
-= Preciso do ElasticPress? =
+= Aplicar sinônimos exige reindexar? =
 
-Não. O plugin pode operar com o indexador próprio. Se o ElasticPress estiver ativo, o plugin se integra a ele em modo somente leitura.
+Não. O vocabulário só muda o analisador de busca. O índice fica fechado por alguns segundos durante a troca; nesse intervalo a busca responde pelo SQL.
 
 = O que acontece se o Elasticsearch ficar offline? =
 
-A busca degrada automaticamente para SQL, um alerta é levantado e o evento é registrado nos logs.
+A busca degrada automaticamente para SQL, o semáforo fica vermelho, um alerta é levantado e o evento é registrado nos logs.
 
 == Changelog ==
 
+= 1.3.0 =
+* Semáforo do Elasticsearch no topo das três telas, com verificações de conexão, índice, cobertura, fila e respostas recentes pelo SQL; a cor também aparece como ponto no menu.
+* O painel passa a ficar em **Tainacan > Outros** por padrão (opção "Menu" em Configurações para levá-lo ao menu principal).
+* Nova tela **Vocabulário da busca**: quatro listas (sinônimos, grafias e variantes, correções e parônimos, palavras ignoradas), upload de .txt/.csv (UTF-8 ou Windows-1252), modelos para baixar, validação linha a linha, ensaio em índice temporário, aplicação com relatório por etapa e testador "sem × com vocabulário".
+* Nova opção **Busca aproximada** (fuzziness AUTO, primeira letra fixa).
+* A busca por texto deixa de converter sinônimos de várias palavras em frase (`auto_generate_synonyms_phrase_query: false`), o que perdia documentos com palavras vazias no meio.
+* Removida toda a integração com plugins de terceiros de indexação: o roteamento depende apenas da configuração `engine` e continua respeitando consultas já respondidas por outro plugin.
+* Corrigido o `uninstall.php`, que dependia de uma constante só definida com o plugin carregado.
+
 = 1.1.9 =
-* A aba **Integrações** agora exibe, quando o ElasticPress não é detectado, uma tabela com os 7 sinais
-  que foram verificados (constantes, classes, função utilitária, plugin ativo no WP, plugin ativo na rede,
-  diretório no filesystem). Para cada um: "sim" / "não" + detalhe. Resposta direta para "por que o plugin
-  diz que o EP não está ativo?" — mostra exatamente qual sinal está faltando.
-* `ElasticPress_Integration::is_active()` ampliado: agora considera ativo se qualquer um destes for
-  verdadeiro — `defined('EP_VERSION')`, `class_exists('\\ElasticPress\\Elasticsearch')`,
-  `class_exists('\\ElasticPress\\Indexables')`, `function_exists('\\ElasticPress\\Utils\\get_host')`.
 * Checagem de plugin ativo inclui agora ativação **na rede** (multisite).
 
 = 1.1.8 =
@@ -105,8 +107,6 @@ A busca degrada automaticamente para SQL, um alerta é levantado e o evento é r
 * A severidade global é o pior achado: "Tudo certo", "Informativo", "Atenção", ou "Ação imediata".
 * Em instalação com 1 nó (single-node), Cluster YELLOW agora é classificado como `info` ("é esperado")
   em vez de `warning` — ajusta o tom para ambientes de desenvolvimento e institucionais menores.
-* Refeita a seção ElasticPress: quando o plugin não está ativo, a mensagem deixa de soar como problema
-  e explica que o cenário é suportado (o indexador próprio está em operação).
 * Nova rota REST `/diagnostics` (read-only, requer `manage_options`).
 
 = 1.1.4 =
@@ -169,4 +169,4 @@ A busca degrada automaticamente para SQL, um alerta é levantado e o evento é r
 * Polling automático das métricas a cada 7 segundos no painel.
 
 = 1.0.0 =
-* Versão inicial: painel de saúde, indexador próprio, integração com ElasticPress, alertas, logs, fallback SQL.
+* Versão inicial: painel de saúde, indexador próprio, alertas, logs, fallback SQL.

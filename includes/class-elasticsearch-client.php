@@ -47,8 +47,8 @@ class Elasticsearch_Client {
 	 * Health of a single index (_cluster/health/<index>).
 	 *
 	 * The cluster is routinely shared: at IBRAM the same Elasticsearch serves
-	 * this plugin's indices side by side with ElasticPress indices of unrelated
-	 * sites. Cluster-wide status therefore says nothing about whether *our*
+	 * this plugin's indices side by side with indices of unrelated sites and
+	 * systems. Cluster-wide status therefore says nothing about whether *our*
 	 * search works — a neighbour's unassigned replica must not be reported here
 	 * as a problem with Tainacan. Ask about the index we actually manage.
 	 *
@@ -201,11 +201,75 @@ class Elasticsearch_Client {
 	}
 
 	/**
-	 * Issue an arbitrary JSON request. Returns decoded body on success, WP_Error on failure.
+	 * Run an analyzer defined on an index over some text (_analyze).
+	 *
+	 * @param array $body `analyzer` + `text`, or an inline `tokenizer`/`filter` chain.
+	 * @return array|\WP_Error
+	 */
+	public function analyze( string $index, array $body ) {
+		$index = $this->sanitize_index_name( $index );
+		return $this->request( 'POST', '/' . rawurlencode( $index ) . '/_analyze', $body, array(), 30 );
+	}
+
+	/**
+	 * Read an index's settings (flat=false).
 	 *
 	 * @return array|\WP_Error
 	 */
-	protected function request( string $method, string $path, $body = null, array $tolerate_codes = array() ) {
+	public function get_index_settings( string $index ) {
+		$index = $this->sanitize_index_name( $index );
+		return $this->request( 'GET', '/' . rawurlencode( $index ) . '/_settings' );
+	}
+
+	/**
+	 * Close an index. Analysis settings can only be changed while it is closed.
+	 *
+	 * @return array|\WP_Error
+	 */
+	public function close_index( string $index ) {
+		$index = $this->sanitize_index_name( $index );
+		return $this->request( 'POST', '/' . rawurlencode( $index ) . '/_close', null, array(), 60 );
+	}
+
+	/**
+	 * Open an index and wait for its primary shard.
+	 *
+	 * @return array|\WP_Error
+	 */
+	public function open_index( string $index ) {
+		$index = $this->sanitize_index_name( $index );
+		return $this->request( 'POST', '/' . rawurlencode( $index ) . '/_open?wait_for_active_shards=1', null, array(), 60 );
+	}
+
+	/**
+	 * Update index settings (PUT _settings).
+	 *
+	 * @return array|\WP_Error
+	 */
+	public function put_index_settings( string $index, array $body ) {
+		$index = $this->sanitize_index_name( $index );
+		return $this->request( 'PUT', '/' . rawurlencode( $index ) . '/_settings', $body, array(), 60 );
+	}
+
+	/**
+	 * Block until the index reaches at least `$status`, or `$seconds` pass.
+	 *
+	 * @return array|\WP_Error Health body; check `timed_out`.
+	 */
+	public function wait_for_index( string $index, string $status = 'yellow', int $seconds = 30 ) {
+		$index = $this->sanitize_index_name( $index );
+		$path  = '/_cluster/health/' . rawurlencode( $index ) . '?wait_for_status=' . rawurlencode( $status ) . '&timeout=' . $seconds . 's';
+		return $this->request( 'GET', $path, null, array( 408 ), $seconds + 10 );
+	}
+
+	/**
+	 * Issue an arbitrary JSON request. Returns decoded body on success, WP_Error on failure.
+	 *
+	 * @param int $timeout Seconds; 0 uses the configured `es_timeout`. Index
+	 *                     open/close legitimately take longer than a search.
+	 * @return array|\WP_Error
+	 */
+	protected function request( string $method, string $path, $body = null, array $tolerate_codes = array(), int $timeout = 0 ) {
 		if ( ! $this->is_configured() ) {
 			return new \WP_Error( 'tim_es_not_configured', __( 'Elasticsearch/OpenSearch não está configurado.', 'tainacan-index-manager' ) );
 		}
@@ -213,7 +277,7 @@ class Elasticsearch_Client {
 		$url     = $this->base_url() . $path;
 		$args    = array(
 			'method'  => $method,
-			'timeout' => $this->timeout(),
+			'timeout' => $timeout > 0 ? max( $timeout, $this->timeout() ) : $this->timeout(),
 			'headers' => array_merge(
 				$this->auth_headers(),
 				array( 'Content-Type' => 'application/json' )

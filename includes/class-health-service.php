@@ -65,8 +65,6 @@ final class Health_Service {
 		$snapshot = array(
 			'generated_at'             => time(),
 			'engine_choice'            => (string) $this->settings->get( 'engine' ),
-			'elasticpress_active'      => $this->is_elasticpress_active(),
-			'elasticpress_version'     => $this->get_elasticpress_version(),
 			'es_configured'            => $this->client->is_configured(),
 			'es_reachable'             => false,
 			'es_ping_ms'                => null,
@@ -132,8 +130,8 @@ final class Health_Service {
 		$snapshot['index_exists'] = is_bool( $exists ) ? $exists : false;
 
 		// Health of *our* index, which is what this panel is actually about. The
-		// cluster is shared — at IBRAM the same Elasticsearch carries ElasticPress
-		// indices of other sites — so cluster-wide yellow says nothing about
+		// cluster is shared — at IBRAM the same Elasticsearch carries indices of
+		// other sites and systems — so cluster-wide yellow says nothing about
 		// whether Tainacan's search is healthy. Classification below prefers this.
 		if ( $snapshot['index_exists'] ) {
 			$index_health = $this->client->index_health( $snapshot['index_name'] );
@@ -171,12 +169,6 @@ final class Health_Service {
 		$choice = $this->settings->engine();
 		if ( Settings::ENGINE_SQL === $choice ) {
 			$snapshot['effective_engine'] = 'sql';
-			$snapshot['fallback_active']  = true;
-		} elseif ( $snapshot['elasticpress_active'] ) {
-			// Routing stands down while ElasticPress is active, so the index is not
-			// answering queries even though it is configured. Name that state rather
-			// than reporting `elasticsearch` and leaving the manager puzzled.
-			$snapshot['effective_engine'] = 'elasticpress_active';
 			$snapshot['fallback_active']  = true;
 		} else {
 			$snapshot['effective_engine'] = 'elasticsearch';
@@ -228,7 +220,7 @@ final class Health_Service {
 	 *
 	 * 1. **Scope.** Prefer the health of the index this plugin manages. The
 	 *    cluster is commonly shared — at IBRAM the same Elasticsearch holds
-	 *    ElasticPress indices of unrelated sites — and a neighbour's unassigned
+	 *    indices of unrelated sites and systems — and a neighbour's unassigned
 	 *    replica used to paint this panel yellow and drag the whole site badge
 	 *    down with it. Only fall back to cluster-wide when we have no index
 	 *    health (index not created yet, or the call failed).
@@ -402,14 +394,4 @@ final class Health_Service {
 		return defined( 'TAINACAN_VERSION' ) || class_exists( '\\Tainacan\\Theme_Helper' ) || class_exists( '\\Tainacan\\Repositories\\Items' );
 	}
 
-	public function is_elasticpress_active(): bool {
-		return defined( 'EP_VERSION' ) || class_exists( '\\ElasticPress\\Elasticsearch' );
-	}
-
-	public function get_elasticpress_version(): ?string {
-		if ( defined( 'EP_VERSION' ) ) {
-			return (string) EP_VERSION;
-		}
-		return null;
-	}
 }
