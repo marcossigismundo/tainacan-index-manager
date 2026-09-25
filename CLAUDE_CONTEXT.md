@@ -65,6 +65,46 @@ Os 10 shards não alocados que disparavam o alerta eram réplicas de dois índic
 
 **Armadilha de contagem:** `_cat/indices` e `_stats` reportam docs do Lucene, que inclui um documento por sub-objeto `nested`. O `brasiliana3_items_v1` aparece com 1.627.832 docs para ~74 mil itens reais. O `index_doc_count` do snapshot não cai nessa: ele vem de `_count`, que conta só documentos-raiz (74.401). Qualquer conferência feita direto no `_cat` ou no `_stats` engana — foi o mesmo erro que fazia a cobertura ler 5000%+ antes da 1.2.0.
 
+## Capacidade do Elasticsearch para novas instalações (medida em 24/09/2026)
+
+Pergunta do Marcos: o mesmo Elasticsearch aguenta o plugin em mais duas instâncias Tainacan (~200 mil itens cada, uma delas o acervo do MHN) e ainda um índice do Koha da Biblioteca Lasar Segall (~150 mil registros, índice do próprio Koha, **sem** este plugin)? Quantos índices cabem?
+
+**Medido** (leitura pura, `wp eval-file` no pod `wp-brasili-3`, lendo as credenciais das settings do plugin):
+
+| Item | Valor |
+|---|---|
+| Versão | ES 8.6.0, 1 nó, sem nenhum plugin (`_cat/plugins` vazio) |
+| Contêiner | 6 GB de RAM, 3 CPUs alocadas |
+| Heap | 2 GB (`-Xms2g -Xmx2g`), 36% em uso; old GC = 0; parent breaker 750 MB de 1,8 GB, nunca disparou |
+| Busca | 5,9 M consultas acumuladas, 0 rejeitadas no thread pool |
+| Índices | 19 índices, 46 shards (limite `max_shards_per_node` = 1000), **2,2 GB no total** |
+| Disco | volume de 1,8 TB, 74% usado por outras coisas, 486 GB livres; watermarks padrão |
+
+Maiores índices: `brasiliana_lod_vetores` 943 MB, `mhnacervosmuseusgovbr-post-1` 842 MB (terceiros), `tainacan_items` 194 MB (rollback antigo do agregador), `brasiliana3_items_v1` 147 MB, `tainacan_items_v2` 54 MB. Oito índices estão vazios (`atom_*`, `agregador-tainacan`, `agregadormuseusgovbr-post-1`, `mhnhomacervosmuseusgovbr-post-1`).
+
+**Conclusão: o limite não é a quantidade de índices, é a RAM.** Shards e disco sobram. O que degrada primeiro é a busca, quando os índices deixam de caber no cache de arquivos do SO. Isso dá uns 3,5 GB: 6 GB do contêiner menos 2 GB de heap e o overhead.
+
+- **Peso por item deste plugin:** ~2 KB (147 MB / 74 mil no brasiliana3; 54 MB / 37 mil no agregador). Duas instâncias de ~200 mil itens somam ~0,8–1,2 GB.
+- **Koha com 150 mil registros MARC:** estimativa de 0,5–1,5 GB, não medida.
+- **Soma com o que existe:** 3,5–5 GB. Passa do cache, e a busca de **todos** os sites do cluster fica mais lenta, sem quebrar.
+- **Espaço recuperável:** ~1 GB, desde que o acervo do MHN migre para este plugin. Seria apagar o `-post-1` do MHN, o `tainacan_items` antigo e os vazios; a decisão é do Marcos, índice por índice.
+- **Recomendação passada ao Marcos:** contêiner com 12 GB e heap de 4 GB (heap ≤ 50% da RAM). Depende da equipe de infraestrutura; do nó worker não há acesso ao Kubernetes.
+
+**Koha no mesmo ES: hoje não funciona.**
+- O Koha exige o plugin `analysis-icu`, e o ES não tem plugin nenhum. Instalar exige reiniciar o ES, ou seja, derrubar a busca de todo o parque por alguns minutos.
+- Também é preciso uma versão do Koha que suporte ES 8.
+- O ES só é alcançável por dentro do cluster (`*.svc.cluster.local`). O site `wp-lasarsegall` (bibliotecalasarsegall.museus.gov.br) só tem o plugin `koha-search`, que consulta um Koha hospedado em outro lugar.
+
+**Antes de instalar este plugin em outra instância:**
+- **Definir `index_name` antes da primeira indexação.** O padrão `tainacan_items` ([class-settings.php](includes/class-settings.php)) é exatamente o índice de rollback do agregador, e o site novo escreveria dentro dele.
+- **Criar um usuário do ES por site**, com papel restrito ao próprio prefixo de índice. Hoje todos usam o superusuário `elastic`, e o botão "Apagar índice" de qualquer site alcança o índice de qualquer outro.
+- Reindexar fora do horário de pico: a indexação inicial pesa no ES de todo o parque.
+
+**Onde estão os sites:**
+- `wp-mhn` (mhn.museus.gov.br) é o site institucional, sem itens Tainacan.
+- O acervo do MHN é `mhnacervosmuseusgovbr`, cujo pod **não** roda no nó 172.30.11.99. Não se sabe se o plugin de terceiros ainda está ativo lá.
+- A segunda instância Tainacan ainda não foi informada pelo Marcos.
+
 ## Metodologia de medição que funcionou (e a que não)
 
 **Não confiar em tempo de resposta sozinho.** A primeira rodada de benchmarks "ES vs SQL" foi inteiramente inválida — o bug #1 acima (orderby em array) fazia tudo cair em SQL dos dois lados, e os tempos pareciam corroborar a comparação por coincidência de cache. A prova real é o contador `_stats/search.query_total` do próprio índice, checado antes/depois de cada requisição — só um delta positivo confirma que o ES respondeu.
@@ -114,6 +154,8 @@ Conferido em 22/09/2026, com o painel corrigido já em pé (deploy manual dos qu
 - **Correção do painel só está no brasiliana3.** O agregador (produção) continua com o `Health_Service` antigo — como o cluster agora está GREEN, ele não mostra o alerta, mas volta a mostrar se qualquer vizinho ficar amarelo de novo.
 - **278 documentos órfãos no `brasiliana3_items_v1`** e divergência por excesso invisível no painel (ver seção acima).
 - `agregadormuseusgovbr-post-1` continua no cluster, vazio desde 07/05/2026 — candidato a remoção, decisão do Marcos.
+- `index_name` padrão (`tainacan_items`) colide com o rollback do agregador. Vale trocar o padrão por algo derivado do site ou recusar indexar enquanto o nome for o padrão. Hoje o risco é só documentado (ver "Capacidade do Elasticsearch").
+- Todas as instalações usam o superusuário `elastic`; falta um usuário por site antes de ampliar o parque.
 - Sem index template no cluster: índice novo criado por outro sistema com réplica traz o YELLOW de volta (agora sem afetar o painel deste plugin, que passou a olhar o próprio índice).
 - Trabalho em aberto, **não commitado e guardado no `git stash`** ("WIP status probe", desde 24/09/2026, para não entrar no commit da 1.3.0 — recuperar com `git stash pop`): `ES_Query_Builder` ganhou o docblock e as constantes `STATUS_PROBE_TTL`/`STATUS_PROBE_PREFIX` do teste "nenhum post usa estes status", mas **o método que as usa ainda não existe** — as constantes estão órfãs. Motivação: na coleção de 74 mil itens a listagem do admin pede `pending` junto com os outros status, e desistir por causa dele jogava tudo no SQL (24 s para 12 itens, lista aparecendo vazia).
 
@@ -202,3 +244,29 @@ Pergunta do Marcos: "buscar fotogr deveria trazer fotografia?" Medido: não traz
 - Todas as buscas medidas foram respondidas pelo ES (`query_total` sobe 2 a 3 por busca: a busca e as sondas), sem fallback, em ~0,3 s.
 
 **Ponto a observar:** com os metadados incluídos, buscas de palavras comuns trazem bem mais itens do que antes ("casa" 15.550, "rio" 9.357). As ocorrências são reais, mas a busca do Tainacan ordena por data, não por relevância, então o que o público vê primeiro não é necessariamente o mais pertinente. Vale avaliar com a equipe se a busca textual deve ordenar por relevância.
+
+## Palavras digitadas errado e a Busca Segmentada (25/09/2026)
+
+**Na lista do Tainacan**, a busca aproximada (`search_typo_tolerance`) já resolve erros de digitação. Medido no brasiliana3 com a opção ligada, tudo respondido pelo ES:
+
+| Busca | Itens |
+|---|---|
+| fotrografia | 4.337 |
+| fotoggrafia | 4.337 |
+| fotogrfia | 4.115 |
+| pintrura | 3.605 |
+| litogarfia | 607 |
+| fotografia (correta) | 5.330 |
+
+- A palavra errada traz menos que a certa porque o `fuzziness` do ES não passa pelos sinônimos: casa com "fotograf", mas não com "foto" nem com "photograph".
+- Para um erro frequente valer exatamente como a palavra certa, ele entra na lista Correções (`fotrografia => fotografia`).
+- Erro e palavra incompleta juntos ("fotrogr") dão 0. O completar palavras só usa prefixo exato, e o ES não combina `fuzziness` com o prefixo da mesma palavra.
+
+**Na Busca Segmentada** (outro repositório, v0.1.6), a palavra errada não gerava recortes. Os recortes usam `match_phrase` com o texto digitado, e o clique filtra `LIKE "fotrografia"`. A correção ficou **lá**, não aqui:
+- o `Speller` descobre, pelo destaque de uma busca aproximada neste índice, a palavra do acervo mais próxima;
+- recortes, cliques e "Encontrado em" usam a palavra corrigida;
+- o painel avisa: "mostrando resultados aproximados para a palavra correta".
+
+Fidelidade medida nos recortes das palavras corrigidas: 22 recortes, 0 divergências. Detalhes no `CLAUDE_CONTEXT.md` daquele repositório.
+
+**Contrato implícito entre os dois plugins.** A Busca Segmentada reproduz a tradução do `ES_Query_Builder`: `LIKE` vira `match_phrase` em `metadata.value_text`, e `IN` vira `terms`. Qualquer mudança nessa tradução aqui precisa ser espelhada lá, senão os números dos recortes deixam de bater com a lista. A mudança da 1.3.1 no texto livre (`s`) não afeta essa tradução: metaquery e taxquery continuam iguais.
