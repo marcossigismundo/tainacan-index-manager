@@ -270,3 +270,12 @@ Pergunta do Marcos: "buscar fotogr deveria trazer fotografia?" Medido: não traz
 Fidelidade medida nos recortes das palavras corrigidas: 22 recortes, 0 divergências. Detalhes no `CLAUDE_CONTEXT.md` daquele repositório.
 
 **Contrato implícito entre os dois plugins.** A Busca Segmentada reproduz a tradução do `ES_Query_Builder`: `LIKE` vira `match_phrase` em `metadata.value_text`, e `IN` vira `terms`. Qualquer mudança nessa tradução aqui precisa ser espelhada lá, senão os números dos recortes deixam de bater com a lista. A mudança da 1.3.1 no texto livre (`s`) não afeta essa tradução: metaquery e taxquery continuam iguais.
+
+## 1.3.2: fila atômica e reconciliação do brasiliana3 (06/10/2026)
+
+Planilha de "inconsistência dos quantitativos" (origem × filtro × listagem) diagnosticada contra o banco e o índice:
+- **317 órfãos** no `brasiliana3_items_v1` — 278 do Forte Defensor Perpétuo (itens excluídos e recriados com IDs novos em 15/09; cada órfão tinha gêmeo vivo de mesmo "Link do item", por isso o museu aparecia dobrado: 556) + 39 rascunhos sem instituição. Removidos com `purge_orphans()`; resolve a pendência dos "278 órfãos" acima.
+- **46 rascunhos nunca indexados** (35 Prudente de Moraes, 10 UFG, 1 MAC-RS), sem falha registrada e com a fila vazia. Causa: `process_batch()` regravava a cópia da fila lida no início do lote, apagando o que a colheita enfileirava no meio. Corrigido em `mutate_queue()` (GET_LOCK por site + releitura sem cache). Indexados com `enqueue_missing()`.
+- Depois: ES 74.123 publish + 19.213 draft = SQL exatamente; fila 0, falhas 0.
+- **Não é do índice:** MHN museológico (origem 22.952, local 22.903 — faltam 49 de um bloco contíguo, ids remotos 28205–28303, que a colheita de 17/09 "achou" e não criou) e Força e Luz (origem cresceu para 2.946; 58 itens novos não colhidos desde 04/09). São do agregador.
+- 1.3.2 instalada no brasiliana3; backup da 1.3.1 em `/root/tim-bkp-20261006-161900/`.
