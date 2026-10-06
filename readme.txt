@@ -4,7 +4,7 @@ Tags: tainacan, elasticsearch, opensearch, search, indexing, synonyms
 Requires at least: 6.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.3.1
+Stable tag: 1.3.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -49,6 +49,9 @@ Não. O vocabulário só muda o analisador de busca. O índice fica fechado por 
 A busca degrada automaticamente para SQL, o semáforo fica vermelho, um alerta é levantado e o evento é registrado nos logs.
 
 == Changelog ==
+
+= 1.3.2 =
+* Corrige a perda silenciosa de itens na fila de indexação: quando uma colheita ou importação salvava itens enquanto um lote era indexado, o lote regravava a fila antiga e os itens recém-enfileirados nunca chegavam ao índice. A fila agora é alterada de forma atômica.
 
 = 1.3.1 =
 * A busca por texto passa a procurar também nos metadados e termos de taxonomia (estavam de fora por serem campos `nested`).

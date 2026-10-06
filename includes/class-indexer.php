@@ -107,14 +107,59 @@ final class Indexer {
 			return 0;
 		}
 
-		$queue   = $this->load_queue();
-		$before  = count( $queue );
-		$queue   = array_values( array_unique( array_merge( $queue, $ids ) ) );
-		$added   = count( $queue ) - $before;
+		$before = 0;
+		$queue  = $this->mutate_queue(
+			static function ( array $current ) use ( $ids, &$before ): array {
+				$before = count( $current );
+				return array_merge( $current, $ids );
+			}
+		);
+		$added  = count( $queue ) - $before;
 
-		update_option( self::QUEUE_OPTION, $queue, false );
 		$this->metrics->observe_queue_size( count( $queue ) );
 		return $added;
+	}
+
+	/**
+	 * Apply a change to the queue as one atomic read-modify-write.
+	 *
+	 * The queue is a single option shared by every PHP process: the cron draining
+	 * it and whatever is saving items (a harvest, an import) at the same time.
+	 * Writing back a copy read earlier silently drops every ID another process
+	 * enqueued in between — those items then never reach the index. So the change
+	 * is applied to a copy read fresh from the database, under a named lock.
+	 *
+	 * @param callable $change Receives the current queue (int[]) and returns the new one.
+	 * @return int[] The queue as written.
+	 */
+	private function mutate_queue( callable $change ): array {
+		global $wpdb;
+
+		// GET_LOCK names are server-wide, and the database server is shared by
+		// many sites: the name has to be unique to this site's options table.
+		$lock   = 'tim_queue_' . md5( DB_NAME . '|' . $wpdb->options );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- advisory lock, nothing to cache.
+		$locked = '1' === (string) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $lock, 10 ) );
+
+		// This process may hold a copy of the option (or of its absence) cached
+		// from before another process changed it; drop both so the read below,
+		// and update_option()'s own "did it change?" check, see the database.
+		wp_cache_delete( self::QUEUE_OPTION, 'options' );
+		$notoptions = wp_cache_get( 'notoptions', 'options' );
+		if ( is_array( $notoptions ) && isset( $notoptions[ self::QUEUE_OPTION ] ) ) {
+			unset( $notoptions[ self::QUEUE_OPTION ] );
+			wp_cache_set( 'notoptions', $notoptions, 'options' );
+		}
+
+		$queue = array_values( array_unique( array_map( 'intval', (array) $change( $this->load_queue() ) ) ) );
+		update_option( self::QUEUE_OPTION, $queue, false );
+
+		if ( $locked ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- advisory lock, nothing to cache.
+			$wpdb->query( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock ) );
+		}
+
+		return $queue;
 	}
 
 	/**
@@ -282,22 +327,30 @@ final class Indexer {
 		// Remove processed (built+skipped) from the queue regardless of indexing outcome;
 		// failures are tracked separately and re-tried by future runs/cron up to max_retries.
 		$processed_ids = array_merge( $batch, $skipped );
-		$queue         = array_values( array_diff( $queue, $processed_ids ) );
 
 		// Re-queue failures that haven't exceeded max retries.
 		$failures   = $this->load_failures();
 		$max_retry  = (int) $this->settings->get( 'max_retries', 3 );
 		$dropped    = 0;
+		$requeue    = array();
 
 		foreach ( $failed as $fid ) {
 			$failures[ $fid ] = ( $failures[ $fid ] ?? 0 ) + 1;
 			if ( $failures[ $fid ] <= $max_retry ) {
-				$queue[] = $fid;
+				$requeue[] = $fid;
 			} else {
 				++$dropped;
 			}
 		}
-		update_option( self::QUEUE_OPTION, array_values( array_unique( $queue ) ), false );
+
+		// Subtract this batch from the queue as it is *now*, not as it was when the
+		// batch started: items saved while the batch was being built and sent were
+		// enqueued by other processes and must survive this write.
+		$queue = $this->mutate_queue(
+			static function ( array $current ) use ( $processed_ids, $requeue ): array {
+				return array_merge( array_diff( $current, $processed_ids ), $requeue );
+			}
+		);
 		update_option( self::FAILURES_OPTION, $failures, false );
 
 		$remaining = count( $queue );
