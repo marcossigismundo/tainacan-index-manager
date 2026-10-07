@@ -76,6 +76,8 @@ final class Settings {
 			'es_password'               => '',
 			'es_api_key'                => '',
 			'es_timeout'                => 5,
+			// Visitor-facing queries (list, facets): short, with a circuit breaker. See Elasticsearch_Client::search_live().
+			'search_timeout'            => 1.5,
 			'index_name'                => 'tainacan_items',
 			'batch_size'                => 50,
 			'batch_interval_seconds'    => 1,
@@ -218,6 +220,9 @@ final class Settings {
 
 			case 'es_timeout':
 				return max( 1, min( 60, (int) $v ) );
+
+			case 'search_timeout':
+				return max( 0.5, min( 10.0, round( (float) $v, 1 ) ) );
 
 			case 'batch_size':
 				return max( 1, min( 1000, (int) $v ) );

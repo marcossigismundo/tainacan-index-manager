@@ -4,7 +4,7 @@ Tags: tainacan, elasticsearch, opensearch, search, indexing, synonyms
 Requires at least: 6.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.3.2
+Stable tag: 1.3.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -49,6 +49,10 @@ Não. O vocabulário só muda o analisador de busca. O índice fica fechado por 
 A busca degrada automaticamente para SQL, o semáforo fica vermelho, um alerta é levantado e o evento é registrado nos logs.
 
 == Changelog ==
+
+= 1.3.3 =
+* Listagem, facetas e a sugestão da busca esperam o Elasticsearch no máximo `search_timeout` (1,5 s por padrão), em vez do `es_timeout` (5 s). Depois de três falhas seguidas, essas consultas vão direto ao SQL por dois minutos (disjuntor em `tainacan_idxmgr_live_breaker`). Indexação, limpeza de órfãos e saúde continuam com o prazo longo.
+* Novos métodos `search_live()` e `count_live()` no cliente, para plugins que consultam o índice em nome do visitante.
 
 = 1.3.2 =
 * Corrige a perda silenciosa de itens na fila de indexação: quando uma colheita ou importação salvava itens enquanto um lote era indexado, o lote regravava a fila antiga e os itens recém-enfileirados nunca chegavam ao índice. A fila agora é alterada de forma atômica.

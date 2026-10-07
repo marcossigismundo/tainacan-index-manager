@@ -199,7 +199,7 @@ final class Facets_Integration {
 		);
 
 		$index = (string) $this->settings->get( 'index_name' );
-		$res   = $this->client->search( $index, $payload );
+		$res   = $this->client->search_live( $index, $payload );
 		if ( is_wp_error( $res ) ) {
 			$this->logger->warning( Logger::CHAN_FALLBACK, 'Faceta degradada para SQL (erro no ES).', array(
 				'metadatum_id' => (int) $metadatum->get_id(),

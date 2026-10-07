@@ -180,6 +180,154 @@ class Elasticsearch_Client {
 	}
 
 	/**
+	 * Option holding the state of the circuit breaker for visitor-facing queries.
+	 */
+	public const LIVE_BREAKER_OPTION = 'tainacan_idxmgr_live_breaker';
+
+	/** Consecutive failures that open the breaker. */
+	private const LIVE_BREAKER_FAILURES = 3;
+
+	/** Seconds the breaker stays open (straight to SQL, no waiting on ES). */
+	private const LIVE_BREAKER_REST = 120;
+
+	/**
+	 * _search on behalf of a visitor (item list, facets): short timeout and a
+	 * circuit breaker.
+	 *
+	 * Measured on brasiliana3 on 07/10/2026 with the ES node stuck on I/O: every
+	 * list request waited the full `es_timeout` (5 s) before falling back to
+	 * SQL, holding an Apache worker and a database connection the whole time —
+	 * on a database server that was already refusing connections. Now the wait
+	 * is `search_timeout` (1.5 s by default), and after three failures in a row
+	 * these queries skip ES for two minutes. Background work (indexing, orphan
+	 * purge, health) keeps using `search()` and the long timeout.
+	 *
+	 * @return array|\WP_Error
+	 */
+	public function search_live( string $index, array $query ) {
+		return $this->live( function () use ( $index, $query ) {
+			$index = $this->sanitize_index_name( $index );
+			return $this->request_live( 'POST', '/' . rawurlencode( $index ) . '/_search', $query );
+		} );
+	}
+
+	/**
+	 * _count on behalf of a visitor, with the same timeout and breaker.
+	 *
+	 * @return int|\WP_Error
+	 */
+	public function count_live( string $index, array $query = array() ) {
+		return $this->live( function () use ( $index, $query ) {
+			$index = $this->sanitize_index_name( $index );
+			$res   = $this->request_live( 'POST', '/' . rawurlencode( $index ) . '/_count', empty( $query ) ? null : $query );
+			if ( is_wp_error( $res ) ) {
+				return $res;
+			}
+			return isset( $res['count'] ) ? (int) $res['count'] : new \WP_Error( 'tim_invalid_count_response', 'Resposta inesperada do _count.' );
+		} );
+	}
+
+	/**
+	 * Is the visitor-query breaker open right now?
+	 */
+	public function live_breaker_open(): bool {
+		$state = get_option( self::LIVE_BREAKER_OPTION, array() );
+		return is_array( $state ) && (int) ( $state['open_until'] ?? 0 ) > time();
+	}
+
+	/**
+	 * Run a visitor-facing call through the breaker.
+	 *
+	 * Only transport failures (timeout, refused connection) and 5xx/429 count:
+	 * a 4xx is ES answering, and a malformed query must not lock everyone out.
+	 *
+	 * @param callable $call Returns array|int|\WP_Error.
+	 * @return mixed
+	 */
+	private function live( callable $call ) {
+		if ( $this->live_breaker_open() ) {
+			return new \WP_Error( 'tim_es_breaker_open', __( 'Elasticsearch lento ou fora do ar: consultas desviadas para o SQL por alguns instantes.', 'tainacan-index-manager' ) );
+		}
+
+		$res = $call();
+
+		if ( is_wp_error( $res ) ) {
+			$data   = $res->get_error_data();
+			$code   = is_array( $data ) ? (int) ( $data['code'] ?? 0 ) : 0;
+			$counts = 0 === strpos( (string) $res->get_error_code(), 'http_request' ) || $code >= 500 || 429 === $code;
+			if ( $counts ) {
+				$this->live_failure( $res->get_error_message() );
+			}
+			return $res;
+		}
+
+		$this->live_success();
+		return $res;
+	}
+
+	private function live_failure( string $reason ): void {
+		$state    = get_option( self::LIVE_BREAKER_OPTION, array() );
+		$state    = is_array( $state ) ? $state : array();
+		$failures = (int) ( $state['failures'] ?? 0 ) + 1;
+		$new      = array(
+			'failures'    => $failures,
+			'open_until'  => 0,
+			'last_reason' => substr( $reason, 0, 240 ),
+			'last_at'     => time(),
+			'opened'      => (int) ( $state['opened'] ?? 0 ),
+		);
+
+		if ( $failures >= self::LIVE_BREAKER_FAILURES ) {
+			$new['failures']   = 0;
+			$new['open_until'] = time() + self::LIVE_BREAKER_REST;
+			$new['opened']    += 1;
+			$this->logger->warning( Logger::CHAN_FALLBACK, 'Elasticsearch falhou seguidamente: listagem e facetas vão direto ao SQL por alguns instantes.', array(
+				'seconds' => self::LIVE_BREAKER_REST,
+				'reason'  => $new['last_reason'],
+			) );
+		}
+
+		// Autoloaded: read on every request, so it must ride along with alloptions
+		// instead of costing its own query.
+		update_option( self::LIVE_BREAKER_OPTION, $new, true );
+	}
+
+	private function live_success(): void {
+		$state = get_option( self::LIVE_BREAKER_OPTION, array() );
+		if ( is_array( $state ) && ( 0 !== (int) ( $state['failures'] ?? 0 ) || 0 !== (int) ( $state['open_until'] ?? 0 ) ) ) {
+			$state['failures']   = 0;
+			$state['open_until'] = 0;
+			update_option( self::LIVE_BREAKER_OPTION, $state, true );
+		}
+	}
+
+	/**
+	 * Like request(), with the short visitor timeout.
+	 *
+	 * @return array|\WP_Error
+	 */
+	private function request_live( string $method, string $path, $body = null ) {
+		if ( ! $this->is_configured() ) {
+			return new \WP_Error( 'tim_es_not_configured', __( 'Elasticsearch/OpenSearch não está configurado.', 'tainacan-index-manager' ) );
+		}
+
+		$args = array(
+			'method'  => $method,
+			'timeout' => $this->live_timeout(),
+			'headers' => array_merge( $this->auth_headers(), array( 'Content-Type' => 'application/json' ) ),
+		);
+		if ( null !== $body ) {
+			$args['body'] = wp_json_encode( $body );
+		}
+
+		return $this->parse_response( wp_remote_request( $this->base_url() . $path, $args ), $method, $path );
+	}
+
+	protected function live_timeout(): float {
+		return (float) $this->settings->get( 'search_timeout', 1.5 );
+	}
+
+	/**
 	 * Count documents in an index (with optional query).
 	 *
 	 * @return int|\WP_Error

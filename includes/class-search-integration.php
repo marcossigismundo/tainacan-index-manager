@@ -85,7 +85,7 @@ final class Search_Integration {
 		// expanding it as the start of a word ("fotogr" → fotografia). A cheap
 		// _count, cached per request; any failure simply means "no expansion".
 		ES_Query_Builder::set_count_probe( function ( array $clause ): ?int {
-			$res = $this->client->count( (string) $this->settings->get( 'index_name' ), array(
+			$res = $this->client->count_live( (string) $this->settings->get( 'index_name' ), array(
 				'query' => array(
 					'bool' => array(
 						'must'   => array( $clause ),
@@ -169,7 +169,7 @@ final class Search_Integration {
 		}
 
 		$index = (string) $this->settings->get( 'index_name' );
-		$res   = $this->client->search( $index, $payload );
+		$res   = $this->client->search_live( $index, $payload );
 		if ( is_wp_error( $res ) ) {
 			$this->mark_fallback( 'es_query_error', $res->get_error_message() );
 			return null;
