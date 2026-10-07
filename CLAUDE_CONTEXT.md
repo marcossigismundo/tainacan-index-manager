@@ -282,3 +282,20 @@ Planilha de "inconsistência dos quantitativos" (origem × filtro × listagem) d
 - Depois: ES 74.123 publish + 19.213 draft = SQL exatamente; fila 0, falhas 0.
 - **Não é do índice:** MHN museológico (origem 22.952, local 22.903 — faltam 49 de um bloco contíguo, ids remotos 28205–28303, que a colheita de 17/09 "achou" e não criou) e Força e Luz (origem cresceu para 2.946; 58 itens novos não colhidos desde 04/09). São do agregador.
 - 1.3.2 instalada no brasiliana3; backup da 1.3.1 em `/root/tim-bkp-20261006-161900/`.
+
+## 1.3.3: tempo limite curto e disjuntor para o visitante (07/10/2026)
+
+Avaliação de carga do brasiliana3 achou o nó do ES travado em E/S (load 1019, CPU 1%, `took` de 5,6 s numa
+busca de 12 itens) e o MariaDB compartilhado em 1000/1000 conexões. Cada listagem esperava os 5 s do
+`es_timeout` antes de cair para o SQL, segurando processo e conexão. Infra ficou com ES e banco.
+
+- `Elasticsearch_Client::search_live()` / `count_live()`: `search_timeout` (1,5 s; sanitizado entre 0,5 e 10,
+  sem campo na tela ainda) + disjuntor em `tainacan_idxmgr_live_breaker` (autoload): 3 falhas seguidas de
+  transporte/5xx/429 → 120 s direto ao SQL. 4xx não conta. Listagem, sonda da busca e facetas usam as
+  versões ao vivo; indexação, órfãos e saúde seguem com `search()`/`count()`.
+- A Busca Segmentada 0.1.7 usa `search_live` quando existe (`method_exists`). Indicadores ficaram com
+  `search()`: têm cache com trava e agregação de alguns segundos é legítima lá.
+- Medido depois (ES já recuperado): listagem 183 ms, busca "moeda" 63 ms; disjuntor simulado aberto →
+  listagem 223 ms sem nenhuma chamada ao ES.
+- No mesmo deploy: `WP_DEBUG` e `WP_DEBUG_LOG` desligados no wp-config do brasiliana3 (o `debug.log` tinha
+  149 MB no NFS). Backup em `/root/backups/carga-20261007_162129/` no nó .99.
