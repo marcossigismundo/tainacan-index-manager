@@ -8,7 +8,7 @@ O README cobre a arquitetura em detalhe (schema do índice, tradução de querie
 
 ## Versão atual e onde está o trabalho
 
-**v1.3.1** — branch `main` (o `feat/es-routing-facetas` foi mesclado em 24/09/2026). As seções do fim deste arquivo descrevem a 1.3.0 (semáforo, menu, vocabulário), as listas geradas e a 1.3.1 (busca nos metadados e completar palavras). Repositório: `github.com/marcossigismundo/tainacan-index-manager`.
+**v1.3.2** — branch `main`, instalada no brasiliana3 em 06/10/2026 (o `feat/es-routing-facetas` foi mesclado em 24/09/2026). As seções do fim deste arquivo descrevem a 1.3.0 (semáforo, menu, vocabulário), as listas geradas, a 1.3.1 (busca nos metadados e completar palavras) e a 1.3.2 (fila atômica e reconciliação do índice do brasiliana3). Repositório: `github.com/marcossigismundo/tainacan-index-manager`.
 
 Este branch é o resultado de uma sessão de diagnóstico + implementação ao vivo em produção (`agregador.museus.gov.br`, ~37 mil itens, 1 coleção principal). Antes dele, o plugin tinha índice populado e **nunca usado** — ver seção "Como chegamos aqui".
 
@@ -140,7 +140,7 @@ Conferido em 22/09/2026, com o painel corrigido já em pé (deploy manual dos qu
 
 - `engine=elasticsearch`, `index_name=brasiliana3_items_v1`, `effective_engine=elasticsearch` — o roteamento está de fato respondendo.
 - `index_status=green`, `cluster_status=green`, `single_node_cluster=true`, `overall_status=ok`, **zero alertas**.
-- 74.401 docs no índice para 74.123 itens no Tainacan → cobertura 100,38%. Os **278 documentos a mais são órfãos**: mesmo padrão já registrado no agregador (item excluído cuja remoção do índice falhou). A `divergence_pct` é calculada como `max(0, 100 - coverage)`, então excesso **não** dispara alerta nenhum — divergência por sobra é invisível no painel, de propósito ou não. Vale decidir.
+- 74.401 docs no índice para 74.123 itens no Tainacan → cobertura 100,38%. Os **278 documentos a mais são órfãos**: mesmo padrão já registrado no agregador (item excluído cuja remoção do índice falhou). A `divergence_pct` é calculada como `max(0, 100 - coverage)`, então excesso **não** dispara alerta nenhum — divergência por sobra é invisível no painel, de propósito ou não. Vale decidir. **Atualização 06/10/2026:** eram na verdade 317 órfãos (278 do Forte + 39 rascunhos), todos removidos; o índice bate 1:1 com o banco (74.123 publish + 19.213 draft). Ver seção 1.3.2.
 - Backup dos arquivos substituídos em `/tmp/tim-bkp-20260922/` dentro do contêiner `wp-brasili-3` (volátil, some no próximo restart do pod).
 
 **Validação do `shard_status()` foi por teste unitário, não em cluster amarelo de verdade.** Depois de zerar as réplicas, o cenário de falha deixou de existir, e forçar o amarelo de volta significava mexer em recurso compartilhado. A decisão foi exercitada por reflexão sobre snapshots sintéticos — 10 casos (índice green + cluster yellow, índice yellow com 1 nó, índice yellow com 2+ nós, RED com 1 nó, snapshot antigo sem as chaves novas), todos passando. O que **não** foi executado é o achado informativo "Cluster compartilhado com outros sistemas" do `Diagnostics`: a condição é a mesma testada no `Health_Service`, mas ele só aparece com o cluster pior que o nosso índice, estado que acabou de ser eliminado. O repo não tem suíte de testes; esse script vale versionar quando houver.
@@ -152,7 +152,10 @@ Conferido em 22/09/2026, com o painel corrigido já em pé (deploy manual dos qu
 - Divergência de recall na busca textual (acima) não validada com a equipe de acervo.
 - ~~PR do branch para `main`~~: mesclado diretamente em `main` em 24/09/2026, a pedido do Marcos (merge `--no-ff`, sem PR).
 - **Correção do painel só está no brasiliana3.** O agregador (produção) continua com o `Health_Service` antigo — como o cluster agora está GREEN, ele não mostra o alerta, mas volta a mostrar se qualquer vizinho ficar amarelo de novo.
-- **278 documentos órfãos no `brasiliana3_items_v1`** e divergência por excesso invisível no painel (ver seção acima).
+- ~~278 documentos órfãos no `brasiliana3_items_v1`~~: removidos em 06/10/2026 (eram na verdade 317). **Continua aberto:** divergência por excesso invisível no painel — órfãos só são vistos rodando `purge_orphans()` à mão; vale um alerta quando docs no índice > itens no banco.
+- **Órfão por exclusão-e-recriação:** quando o agregador exclui e recria itens (caso do Forte, 15/09), o `before_delete_post` deveria ter apagado o documento antigo e não apagou — causa não investigada. Conferir o log `Falha ao apagar documento do índice.` na próxima vez que acontecer.
+- **1.3.2 não está no agregador (produção)** — só na `main` e no brasiliana3.
+- **Não é deste plugin, é do agregador** (registrado aqui porque apareceu na mesma planilha de conferência): MHN museológico com 49 itens não criados (bloco contíguo, ids remotos 28205–28303) e Espaço Força e Luz com 58 itens novos na origem ainda não colhidos desde 04/09.
 - `agregadormuseusgovbr-post-1` continua no cluster, vazio desde 07/05/2026 — candidato a remoção, decisão do Marcos.
 - `index_name` padrão (`tainacan_items`) colide com o rollback do agregador. Vale trocar o padrão por algo derivado do site ou recusar indexar enquanto o nome for o padrão. Hoje o risco é só documentado (ver "Capacidade do Elasticsearch").
 - Todas as instalações usam o superusuário `elastic`; falta um usuário por site antes de ampliar o parque.
