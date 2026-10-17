@@ -167,7 +167,9 @@ final class Plugin {
 		return $this->booted
 			&& $this->search->engine_allows_routing()
 			&& (bool) $this->settings->get( 'route_item_lists', true )
-			&& $this->index_manager->client()->is_configured();
+			&& $this->index_manager->client()->is_configured()
+			// Breaker open = the list is being answered by SQL right now.
+			&& ! $this->index_manager->client()->live_breaker_open();
 	}
 
 	/**
@@ -205,7 +207,7 @@ final class Plugin {
 		Logger::install();
 		Settings::install_defaults();
 		Cron::schedule_default();
-		update_option( self::DB_VERSION_OPTION, TAINACAN_INDEX_MANAGER_VERSION, false );
+		update_option( self::DB_VERSION_OPTION, TAINACAN_INDEX_MANAGER_VERSION, true );
 	}
 
 	/**
@@ -254,7 +256,7 @@ final class Plugin {
 		Logger::install();
 		Settings::install_defaults();
 		Cron::schedule_default();
-		update_option( self::DB_VERSION_OPTION, TAINACAN_INDEX_MANAGER_VERSION, false );
+		update_option( self::DB_VERSION_OPTION, TAINACAN_INDEX_MANAGER_VERSION, true );
 	}
 
 	/**

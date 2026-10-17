@@ -160,14 +160,38 @@ final class Index_Manager {
 	}
 
 	/**
+	 * Stemmer language an existing index was created with ('' when unknown).
+	 *
+	 * The index-time analyzer cannot change without reindexing; anything that
+	 * rewrites the index filters (applying the vocabulary) must keep THIS
+	 * language, not the one currently configured, or old documents end up
+	 * stemmed differently from new ones and from queries.
+	 */
+	public function index_language( string $index ): string {
+		$settings = $this->client->get_index_settings( $index );
+		if ( is_wp_error( $settings ) || ! is_array( $settings ) ) {
+			return '';
+		}
+		foreach ( $settings as $idx ) {
+			$lang = $idx['settings']['index']['analysis']['filter']['brazilian_stemmer']['language'] ?? '';
+			if ( is_string( $lang ) && in_array( $lang, Settings::analysis_languages(), true ) ) {
+				return $lang;
+			}
+		}
+		return '';
+	}
+
+	/**
 	 * Token filters every index of this plugin defines.
 	 *
 	 * Filter names stay `brazilian_*` whatever the language, because the applied
 	 * vocabulary and the search analyzer reference them by name; only the
 	 * stemmer language and the stopword list follow the setting.
 	 */
-	public static function base_filters(): array {
-		$lang = self::analysis_language();
+	public static function base_filters( string $lang = '' ): array {
+		if ( '' === $lang || ! in_array( $lang, Settings::analysis_languages(), true ) ) {
+			$lang = self::analysis_language();
+		}
 		return array(
 			'brazilian_stop'        => array(
 				'type'      => 'stop',

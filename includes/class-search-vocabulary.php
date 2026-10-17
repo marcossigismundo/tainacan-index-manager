@@ -651,7 +651,7 @@ final class Search_Vocabulary {
 			array(
 				'index' => array(
 					'analysis' => array(
-						'filter'   => array_merge( Index_Manager::base_filters(), $analysis['filter'] ),
+						'filter'   => array_merge( Index_Manager::base_filters( $this->idioma_do_indice( (string) $this->settings->get( 'index_name' ) ) ), $analysis['filter'] ),
 						'analyzer' => $analysis['analyzer'],
 					),
 				),
@@ -756,7 +756,7 @@ final class Search_Vocabulary {
 
 		$this->drop_index_quietly( $probe_index );
 
-		$filters = Index_Manager::base_filters();
+		$filters = Index_Manager::base_filters( $this->idioma_do_indice( (string) $this->settings->get( 'index_name' ) ) );
 		$chain   = array( 'lowercase', 'asciifolding', 'brazilian_stop' );
 		if ( ! empty( $stopwords ) ) {
 			$filters[ self::FILTER_STOP ] = array(
@@ -909,7 +909,7 @@ final class Search_Vocabulary {
 					'number_of_shards'   => 1,
 					'number_of_replicas' => 0,
 					'analysis'           => array(
-						'filter'   => array_merge( Index_Manager::base_filters(), $analysis['filter'] ),
+						'filter'   => array_merge( Index_Manager::base_filters( $this->idioma_do_indice( (string) $this->settings->get( 'index_name' ) ) ), $analysis['filter'] ),
 						'analyzer' => $analysis['analyzer'],
 					),
 				),
@@ -946,6 +946,34 @@ final class Search_Vocabulary {
 		$applied['index'] = $index;
 		$state['applied'] = $applied;
 		update_option( self::OPTION, $state, false );
+	}
+
+	/**
+	 * Stemmer language the live index was created with; falls back to the
+	 * configured one when the index does not exist yet or cannot be read.
+	 *
+	 * The analysis settings written by apply()/rehearse() must keep the
+	 * index-time language: changing `analysis_language` in the settings only
+	 * takes effect when the index is recreated and reindexed.
+	 */
+	private function idioma_do_indice( string $index ): string {
+		static $cache = array();
+		if ( isset( $cache[ $index ] ) ) {
+			return $cache[ $index ];
+		}
+		$lang     = '';
+		$settings = $this->client->get_index_settings( $index );
+		if ( is_array( $settings ) ) {
+			foreach ( $settings as $idx ) {
+				$found = $idx['settings']['index']['analysis']['filter']['brazilian_stemmer']['language'] ?? '';
+				if ( is_string( $found ) && in_array( $found, Settings::analysis_languages(), true ) ) {
+					$lang = $found;
+					break;
+				}
+			}
+		}
+		$cache[ $index ] = $lang;
+		return $lang;
 	}
 
 	private function drop_index_quietly( string $index ): void {

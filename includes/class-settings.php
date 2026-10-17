@@ -114,7 +114,9 @@ final class Settings {
 	 * name is stored.
 	 */
 	public static function default_index_name(): string {
-		$home = function_exists( 'home_url' ) ? (string) home_url() : '';
+		// The raw option, not home_url(): multilingual plugins filter home_url()
+		// per request language, which would make the default name vary.
+		$home = function_exists( 'get_option' ) ? (string) get_option( 'home', '' ) : '';
 		if ( '' === $home ) {
 			return 'tainacan_items';
 		}
@@ -245,7 +247,10 @@ final class Settings {
 		// key that changed in the meantime. That is not theoretical: a cron tick
 		// stamping `last_index_run_ts` was reverting `engine` and `index_name` to
 		// whatever they were when its Settings instance was built.
-		$current = self::all();
+		// Without the constant overrides: a value supplied by wp-config.php must
+		// never be copied into the database by a save (or by mark_timestamp()).
+		$stored  = get_option( self::OPTION_KEY, array() );
+		$current = array_merge( $defaults, is_array( $stored ) ? $stored : array() );
 
 		// Pre-process es_url for inline credentials before normal sanitization.
 		if ( isset( $partial['es_url'] ) && is_string( $partial['es_url'] ) && '' !== trim( $partial['es_url'] ) ) {
@@ -265,11 +270,15 @@ final class Settings {
 			if ( ! array_key_exists( $k, $defaults ) ) {
 				continue;
 			}
+			if ( self::is_overridden( $k ) ) {
+				// The constant wins at read time; the screen cannot change it.
+				continue;
+			}
 			$current[ $k ] = $this->sanitize_value( $k, $v );
 		}
 
 		$ok          = update_option( self::OPTION_KEY, $current, false );
-		$this->cache = $current;
+		$this->cache = self::all();
 		return (bool) $ok;
 	}
 
@@ -287,9 +296,17 @@ final class Settings {
 
 			case 'es_url':
 				$v = esc_url_raw( is_string( $v ) ? trim( $v ) : '', array( 'http', 'https' ) );
-				// Only absolute http(s) URLs reach wp_remote_*; anything else would
-				// make the client knock on a scheme/host the admin did not mean.
-				return ( '' !== $v && wp_http_validate_url( $v ) ) || '' === $v ? $v : '';
+				if ( '' === $v ) {
+					return '';
+				}
+				// Only absolute http(s) URLs with a host. NOT wp_http_validate_url():
+				// it rejects loopback/private hosts and any port other than 80/443/8080,
+				// which is exactly where an Elasticsearch node lives (127.0.0.1:9200).
+				$parts = wp_parse_url( $v );
+				if ( ! is_array( $parts ) || empty( $parts['host'] ) || ! in_array( strtolower( (string) ( $parts['scheme'] ?? '' ) ), array( 'http', 'https' ), true ) ) {
+					return '';
+				}
+				return $v;
 
 			case 'es_username':
 			case 'es_password':

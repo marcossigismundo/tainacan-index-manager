@@ -281,37 +281,45 @@ final class Indexer {
 		}
 
 		try {
+			// Re-read under the lock: another process may have drained this head
+			// of the queue between our first read and the lock.
+			$queue = $this->load_queue();
+			if ( empty( $queue ) ) {
+				$this->set_state( self::STATE_FINISHED );
+				return array(
+					'ok'        => true,
+					'processed' => 0,
+					'remaining' => 0,
+					'state'     => self::STATE_FINISHED,
+					'message'   => __( 'Fila vazia.', 'tainacan-index-manager' ),
+				);
+			}
 			return $this->run_batch( $queue );
 		} finally {
 			$this->release_batch_lock();
 		}
 	}
 
-	private const BATCH_LOCK = 'tainacan_idxmgr_batch_lock';
-
 	/**
-	 * Take the batch lock. A lock older than its TTL is considered abandoned
-	 * (a PHP process killed mid-batch) and is taken over.
+	 * Named MySQL lock for the batch (same mechanism as the queue): atomic, no
+	 * TTL to tune — a bulk of 1,000 documents can outlive any fixed TTL — and
+	 * released by the server if the PHP process dies with the connection.
 	 */
+	private function batch_lock_name(): string {
+		global $wpdb;
+		return 'tim_batch_' . md5( DB_NAME . '|' . $wpdb->options );
+	}
+
 	private function acquire_batch_lock(): bool {
-		$ttl = 2 * MINUTE_IN_SECONDS;
-		if ( wp_using_ext_object_cache() ) {
-			return (bool) wp_cache_add( self::BATCH_LOCK, time(), 'tainacan_index_manager', $ttl );
-		}
-		$held = get_transient( self::BATCH_LOCK );
-		if ( false !== $held && time() - (int) $held < $ttl ) {
-			return false;
-		}
-		set_transient( self::BATCH_LOCK, time(), $ttl );
-		return true;
+		global $wpdb;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Advisory lock; nothing to cache.
+		return '1' === (string) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $this->batch_lock_name(), 0 ) );
 	}
 
 	private function release_batch_lock(): void {
-		if ( wp_using_ext_object_cache() ) {
-			wp_cache_delete( self::BATCH_LOCK, 'tainacan_index_manager' );
-			return;
-		}
-		delete_transient( self::BATCH_LOCK );
+		global $wpdb;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Advisory lock; nothing to cache.
+		$wpdb->query( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $this->batch_lock_name() ) );
 	}
 
 	/**
