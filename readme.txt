@@ -62,7 +62,7 @@ A busca degrada automaticamente para SQL, o semáforo fica vermelho, um alerta �
 * **Configurações:** roteamento de listagens, roteamento de facetas, máximo de valores por faceta e o tempo limite do visitante aparecem na tela; "fallback automático" e "intervalo entre lotes" (sem efeito) removidos. Novo campo **Idioma dos analisadores**. O nome padrão do índice passa a ser derivado do endereço do site (instalações existentes mantêm o nome gravado).
 * `Plugin::instance()` ganha `is_booted()` e `is_routing()`; os getters devolvem `null` antes do boot em vez de lançar erro.
 * Multisite: ativação em rede instala em todos os sites e em sites novos; desinstalação idem. Rotina de atualização para instalações feitas por cópia.
-* Painel só regrava um alerta inalterado uma vez por minuto.
+* Painel só regrava um alerta inalterado uma vez por minuto; o tick de indexação ocioso (fila vazia, pausado, sem ES) não gera linha de log.
 * Pacote: `tools/`, `docs/` e o contexto de desenvolvimento ficam fora do ZIP; `phpcs.xml.dist` estrito, `composer.json` e CI (phpcs + Plugin Check); `Tested up to: 7.1`.
 
 = 1.3.3 =

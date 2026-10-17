@@ -144,9 +144,11 @@ final class Cron {
 	}
 
 	public function run_index_tick(): void {
-		$this->logger->info( Logger::CHAN_CRON, 'Cron: tick de indexação.' );
+		// An idle tick (empty queue, paused, ES unconfigured) writes nothing:
+		// a row per minute, 1,440 a day, buried the rows that matter. The batch
+		// itself logs when it processes something.
 		$res = $this->indexer->process_batch();
-		if ( ! $res['ok'] ) {
+		if ( ! $res['ok'] && empty( $res['skipped'] ) ) {
 			$this->logger->warning( Logger::CHAN_INDEXER, 'Tick de indexação falhou.', array( 'message' => $res['message'] ?? '' ) );
 		}
 	}

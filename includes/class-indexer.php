@@ -247,6 +247,7 @@ final class Indexer {
 		if ( ! $this->client->is_configured() ) {
 			return array(
 				'ok'        => false,
+				'skipped'   => 'es_not_configured',
 				'processed' => 0,
 				'remaining' => count( $this->load_queue() ),
 				'state'     => $this->get_state(),
