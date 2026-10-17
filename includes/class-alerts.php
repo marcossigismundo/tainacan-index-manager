@@ -20,9 +20,9 @@ final class Alerts {
 	public const SEV_WARNING  = 'warning';
 	public const SEV_CRITICAL = 'critical';
 
-	private const OPTION_KEY        = 'tainacan_idxmgr_alerts';
-	private const EMAIL_TRANSIENT   = 'tainacan_idxmgr_alert_email_sent_';
-	private const EMAIL_COOLDOWN_S  = HOUR_IN_SECONDS;
+	private const OPTION_KEY       = 'tainacan_idxmgr_alerts';
+	private const EMAIL_TRANSIENT  = 'tainacan_idxmgr_alert_email_sent_';
+	private const EMAIL_COOLDOWN_S = HOUR_IN_SECONDS;
 
 	private Logger $logger;
 
@@ -56,6 +56,13 @@ final class Alerts {
 		$changed  = ! $existing
 			|| ( $existing['severity'] ?? '' ) !== $severity
 			|| ( $existing['message'] ?? '' ) !== $message;
+
+		// The dashboard re-evaluates alerts every few seconds; a steady-state
+		// alert only needs its `last_seen` refreshed once a minute, not an
+		// option write per poll.
+		if ( ! $changed && time() - (int) ( $existing['last_seen'] ?? 0 ) < MINUTE_IN_SECONDS ) {
+			return;
+		}
 
 		$alerts[ $code ] = array(
 			'code'       => $code,
@@ -112,7 +119,9 @@ final class Alerts {
 	private function maybe_send_email( string $code, string $severity, string $message ): void {
 		$plugin   = Plugin::instance();
 		$settings = $plugin->settings();
-
+		if ( null === $settings ) {
+			return;
+		}
 		if ( ! $settings->get( 'alert_email_enabled', false ) ) {
 			return;
 		}
@@ -135,7 +144,7 @@ final class Alerts {
 			/* translators: %1$s message, %2$s site URL */
 			__( "Alerta gerado pelo Tainacan Index Manager.\n\n%1\$s\n\nVerifique o painel em %2\$s", 'tainacan-index-manager' ),
 			$message,
-			admin_url( 'admin.php?page=tainacan_index_manager' )
+			admin_url( 'admin.php?page=' . Admin_Page::DASHBOARD_SLUG )
 		);
 
 		$sent = wp_mail( $to, $subject, $body );
@@ -152,6 +161,9 @@ final class Alerts {
 	public function render_notices(): void {
 		$plugin   = Plugin::instance();
 		$settings = $plugin->settings();
+		if ( null === $settings ) {
+			return;
+		}
 		if ( ! $settings->get( 'alert_dashboard_enabled', true ) ) {
 			return;
 		}

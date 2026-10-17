@@ -85,25 +85,35 @@ final class Traffic_Light {
 			} elseif ( 'yellow' === $status ) {
 				$checks[] = self::check( 'index', 'warn', __( 'Índice', 'tainacan-index-manager' ), __( 'Estado YELLOW: réplicas não alocadas.', 'tainacan-index-manager' ) );
 			} else {
-				$checks[] = self::check( 'index', 'ok', __( 'Índice', 'tainacan-index-manager' ), sprintf(
+				$checks[] = self::check(
+					'index',
+					'ok',
+					__( 'Índice', 'tainacan-index-manager' ),
+					sprintf(
 					/* translators: %1$s = índice, %2$s = documentos */
-					__( '"%1$s" íntegro, %2$s documentos.', 'tainacan-index-manager' ),
-					(string) $snap['index_name'],
-					number_format_i18n( (int) $snap['index_doc_count'] )
-				) );
+						__( '"%1$s" íntegro, %2$s documentos.', 'tainacan-index-manager' ),
+						(string) $snap['index_name'],
+						number_format_i18n( (int) $snap['index_doc_count'] )
+					)
+				);
 			}
 		}
 
 		/* Coverage */
 		if ( null !== ( $snap['coverage_pct'] ?? null ) ) {
 			$over     = (float) $snap['divergence_pct'] > (float) $snap['divergence_threshold_pct'];
-			$checks[] = self::check( 'coverage', $over ? 'warn' : 'ok', __( 'Cobertura', 'tainacan-index-manager' ), sprintf(
+			$checks[] = self::check(
+				'coverage',
+				$over ? 'warn' : 'ok',
+				__( 'Cobertura', 'tainacan-index-manager' ),
+				sprintf(
 				/* translators: %1$s = %, %2$s = indexados, %3$s = itens */
-				__( '%1$s%% — %2$s documentos para %3$s itens no Tainacan.', 'tainacan-index-manager' ),
-				number_format_i18n( (float) $snap['coverage_pct'], 1 ),
-				number_format_i18n( (int) $snap['index_doc_count'] ),
-				number_format_i18n( (int) $snap['tainacan_item_count'] )
-			) );
+					__( '%1$s%% — %2$s documentos para %3$s itens no Tainacan.', 'tainacan-index-manager' ),
+					number_format_i18n( (float) $snap['coverage_pct'], 1 ),
+					number_format_i18n( (int) $snap['index_doc_count'] ),
+					number_format_i18n( (int) $snap['tainacan_item_count'] )
+				)
+			);
 		}
 
 		/* Queue */
@@ -125,12 +135,17 @@ final class Traffic_Light {
 		/* Recent fallback */
 		$fallback = $this->search->last_fallback();
 		if ( $engine_on && is_array( $fallback ) && ( time() - (int) ( $fallback['since'] ?? 0 ) ) < self::FALLBACK_WINDOW && 'es_not_configured' !== ( $fallback['reason'] ?? '' ) ) {
-			$checks[] = self::check( 'fallback', 'warn', __( 'Respostas pelo SQL', 'tainacan-index-manager' ), sprintf(
+			$checks[] = self::check(
+				'fallback',
+				'warn',
+				__( 'Respostas pelo SQL', 'tainacan-index-manager' ),
+				sprintf(
 				/* translators: %1$s = hora, %2$s = motivo */
-				__( 'Às %1$s uma consulta falhou no índice e foi respondida pelo banco (%2$s).', 'tainacan-index-manager' ),
-				wp_date( 'H:i', (int) $fallback['since'] ),
-				self::fallback_reason( (string) ( $fallback['reason'] ?? '' ) )
-			) );
+					__( 'Às %1$s uma consulta falhou no índice e foi respondida pelo banco (%2$s).', 'tainacan-index-manager' ),
+					wp_date( 'H:i', (int) $fallback['since'] ),
+					self::fallback_reason( (string) ( $fallback['reason'] ?? '' ) )
+				)
+			);
 		}
 
 		/* Vocabulary — informative, never changes the colour */
@@ -138,17 +153,22 @@ final class Traffic_Light {
 		if ( $vocab['pending'] ) {
 			$checks[] = self::check( 'vocabulary', 'info', __( 'Vocabulário', 'tainacan-index-manager' ), __( 'Há alterações salvas que ainda não foram aplicadas.', 'tainacan-index-manager' ) );
 		} elseif ( $vocab['rules_count'] + $vocab['stopwords_count'] > 0 ) {
-			$checks[] = self::check( 'vocabulary', 'ok', __( 'Vocabulário', 'tainacan-index-manager' ), sprintf(
+			$checks[] = self::check(
+				'vocabulary',
+				'ok',
+				__( 'Vocabulário', 'tainacan-index-manager' ),
+				sprintf(
 				/* translators: %1$s regras, %2$s palavras */
-				__( '%1$s regras e %2$s palavras ignoradas em uso.', 'tainacan-index-manager' ),
-				number_format_i18n( $vocab['rules_count'] ),
-				number_format_i18n( $vocab['stopwords_count'] )
-			) );
+					__( '%1$s regras e %2$s palavras ignoradas em uso.', 'tainacan-index-manager' ),
+					number_format_i18n( $vocab['rules_count'] ),
+					number_format_i18n( $vocab['stopwords_count'] )
+				)
+			);
 		} else {
 			$checks[] = self::check( 'vocabulary', 'off', __( 'Vocabulário', 'tainacan-index-manager' ), __( 'Nenhum sinônimo cadastrado.', 'tainacan-index-manager' ) );
 		}
 
-		$light = $this->classify( $engine_on, $checks );
+		$light               = $this->classify( $engine_on, $checks );
 		$light['checks']     = $checks;
 		$light['checked_at'] = (int) ( $snap['generated_at'] ?? time() );
 
@@ -253,11 +273,15 @@ final class Traffic_Light {
 		if ( $old && $old['color'] === $light['color'] && $old['title'] === $light['title'] && ( time() - $old['at'] ) < 300 ) {
 			return;
 		}
-		update_option( self::OPTION, array(
-			'color' => $light['color'],
-			'title' => $light['title'],
-			'at'    => time(),
-		), false );
+		update_option(
+			self::OPTION,
+			array(
+				'color' => $light['color'],
+				'title' => $light['title'],
+				'at'    => time(),
+			),
+			false
+		);
 	}
 
 	/**

@@ -69,9 +69,13 @@ final class Facets_Integration {
 		try {
 			return $this->serve( $metadatum, is_array( $args ) ? $args : array() );
 		} catch ( \Throwable $e ) {
-			$this->logger->warning( Logger::CHAN_FALLBACK, 'Faceta degradada para SQL.', array(
-				'error' => $e->getMessage(),
-			) );
+			$this->logger->warning(
+				Logger::CHAN_FALLBACK,
+				'Faceta degradada para SQL.',
+				array(
+					'error' => $e->getMessage(),
+				)
+			);
 			return null;
 		}
 	}
@@ -201,10 +205,19 @@ final class Facets_Integration {
 		$index = (string) $this->settings->get( 'index_name' );
 		$res   = $this->client->search_live( $index, $payload );
 		if ( is_wp_error( $res ) ) {
-			$this->logger->warning( Logger::CHAN_FALLBACK, 'Faceta degradada para SQL (erro no ES).', array(
-				'metadatum_id' => (int) $metadatum->get_id(),
-				'error'        => $res->get_error_message(),
-			) );
+			// While the breaker is open the client refuses without touching ES;
+			// that refusal is expected (and was logged when the breaker opened),
+			// so it must not add a log row per facet per page view.
+			if ( 'tim_es_breaker_open' !== $res->get_error_code() ) {
+				$this->logger->warning(
+					Logger::CHAN_FALLBACK,
+					'Faceta degradada para SQL (erro no ES).',
+					array(
+						'metadatum_id' => (int) $metadatum->get_id(),
+						'error'        => $res->get_error_message(),
+					)
+				);
+			}
 			return null;
 		}
 
@@ -279,28 +292,30 @@ final class Facets_Integration {
 			// These fetches run WP_Query internally. Suspending routing keeps them
 			// from re-entering Search_Integration through posts_pre_query, which
 			// would recurse until PHP's memory limit is exhausted.
-			return Search_Integration::without_routing( static function () use ( $collection_id ) {
-				$repo = call_user_func( array( '\\Tainacan\\Repositories\\Collections', 'get_instance' ) );
+			return Search_Integration::without_routing(
+				static function () use ( $collection_id ) {
+					$repo = call_user_func( array( '\\Tainacan\\Repositories\\Collections', 'get_instance' ) );
 
-				if ( ! empty( $collection_id ) && is_numeric( $collection_id ) ) {
-					$collection = $repo->fetch( (int) $collection_id );
-					if ( is_object( $collection ) && method_exists( $collection, 'get_db_identifier' ) ) {
-						return array( (string) $collection->get_db_identifier() );
+					if ( ! empty( $collection_id ) && is_numeric( $collection_id ) ) {
+						$collection = $repo->fetch( (int) $collection_id );
+						if ( is_object( $collection ) && method_exists( $collection, 'get_db_identifier' ) ) {
+							return array( (string) $collection->get_db_identifier() );
+						}
+						return array();
 					}
-					return array();
-				}
 
-				$types = array();
-				$cols  = $repo->fetch( array( 'posts_per_page' => -1 ), 'OBJECT' );
-				if ( is_array( $cols ) ) {
-					foreach ( $cols as $c ) {
-						if ( is_object( $c ) && method_exists( $c, 'get_db_identifier' ) ) {
-							$types[] = (string) $c->get_db_identifier();
+					$types = array();
+					$cols  = $repo->fetch( array( 'posts_per_page' => -1 ), 'OBJECT' );
+					if ( is_array( $cols ) ) {
+						foreach ( $cols as $c ) {
+							if ( is_object( $c ) && method_exists( $c, 'get_db_identifier' ) ) {
+								$types[] = (string) $c->get_db_identifier();
+							}
 						}
 					}
+					return array_values( array_filter( array_unique( $types ) ) );
 				}
-				return array_values( array_filter( array_unique( $types ) ) );
-			} );
+			);
 		} catch ( \Throwable $e ) {
 			return array();
 		}

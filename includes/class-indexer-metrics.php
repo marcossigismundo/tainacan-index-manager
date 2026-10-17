@@ -36,14 +36,14 @@ final class Indexer_Metrics {
 	 */
 	private function defaults(): array {
 		return array(
-			'runs'              => array(),
-			'lifetime_indexed'  => 0,
-			'lifetime_failed'   => 0,
-			'lifetime_skipped'  => 0,
-			'lifetime_dropped'  => 0,
-			'lifetime_batches'  => 0,
-			'peak_queue_size'   => 0,
-			'failure_top'       => array(),
+			'runs'               => array(),
+			'lifetime_indexed'   => 0,
+			'lifetime_failed'    => 0,
+			'lifetime_skipped'   => 0,
+			'lifetime_dropped'   => 0,
+			'lifetime_batches'   => 0,
+			'peak_queue_size'    => 0,
+			'failure_top'        => array(),
 			'last_error_summary' => array(),
 			'last_error_ts'      => 0,
 			'first_run_ts'       => 0,
@@ -113,7 +113,7 @@ final class Indexer_Metrics {
 		if ( ! empty( $run['failed_ids'] ) && is_array( $run['failed_ids'] ) ) {
 			$top = is_array( $doc['failure_top'] ?? null ) ? $doc['failure_top'] : array();
 			foreach ( $run['failed_ids'] as $id ) {
-				$id        = (int) $id;
+				$id         = (int) $id;
 				$top[ $id ] = ( $top[ $id ] ?? 0 ) + 1;
 			}
 			arsort( $top, SORT_NUMERIC );
@@ -227,23 +227,23 @@ final class Indexer_Metrics {
 		}
 
 		return array(
-			'lifetime' => array(
+			'lifetime'           => array(
 				'indexed' => (int) $doc['lifetime_indexed'],
 				'failed'  => (int) $doc['lifetime_failed'],
 				'skipped' => (int) $doc['lifetime_skipped'],
 				'dropped' => (int) $doc['lifetime_dropped'],
 				'batches' => (int) $doc['lifetime_batches'],
 			),
-			'window'   => array(
-				'runs'              => $total_recent,
-				'indexed'           => $sum_indexed,
-				'failed'            => $sum_failed,
-				'throughput_ips'    => round( $throughput_ips, 2 ),
-				'avg_batch_ms'      => $avg_batch_ms,
-				'avg_batch_size'    => $avg_batch_sz,
-				'success_rate_pct'  => $success_rate,
+			'window'             => array(
+				'runs'             => $total_recent,
+				'indexed'          => $sum_indexed,
+				'failed'           => $sum_failed,
+				'throughput_ips'   => round( $throughput_ips, 2 ),
+				'avg_batch_ms'     => $avg_batch_ms,
+				'avg_batch_size'   => $avg_batch_sz,
+				'success_rate_pct' => $success_rate,
 			),
-			'queue'        => array(
+			'queue'              => array(
 				'size'          => (int) $queue_size,
 				'peak_observed' => (int) $doc['peak_queue_size'],
 				'eta_seconds'   => $eta_seconds,

@@ -738,8 +738,23 @@
 						<div class="tim-field"><label>Usuário (Basic)</label><input type="text" v-model="form.es_username"></div>\
 						<div class="tim-field"><label>Senha (Basic)</label><input type="password" v-model="form.es_password" placeholder="••••"></div>\
 						<div class="tim-field"><label>API Key (alternativa)</label><input type="password" v-model="form.es_api_key" placeholder="••••"></div>\
-						<div class="tim-field"><label>Nome do índice</label><input type="text" v-model="form.index_name"></div>\
-						<div class="tim-field"><label>Timeout (segundos)</label><input type="number" min="1" max="60" v-model.number="form.es_timeout"></div>\
+						<div class="tim-field"><label>Nome do índice</label><input type="text" v-model="form.index_name"><span class="tim-help">Num Elasticsearch compartilhado por vários sites, cada site precisa do seu próprio nome; o padrão já é derivado do endereço do site.</span></div>\
+						<div class="tim-field"><label>Idioma dos analisadores</label>\
+							<select v-model="form.analysis_language"><option v-for="l in (form.analysis_languages || [\'brazilian\'])" :value="l">{{ l }}</option></select>\
+							<span class="tim-help">Radicalização e palavras vazias do índice. Mudar exige recriar o índice e indexar tudo de novo.</span>\
+						</div>\
+						<div class="tim-field"><label>Timeout de fundo (segundos)</label><input type="number" min="1" max="60" v-model.number="form.es_timeout"><span class="tim-help">Indexação, saúde e limpeza de órfãos.</span></div>\
+						<div class="tim-field"><label>Timeout do visitante (segundos)</label><input type="number" min="0.5" max="10" step="0.5" v-model.number="form.search_timeout"><span class="tim-help">Listagens, facetas e busca. Depois de três falhas seguidas essas consultas vão direto ao SQL por dois minutos.</span></div>\
+						<p class="tim-muted" v-if="form.overridden_by_constant && form.overridden_by_constant.length">Definidos no wp-config.php (os campos acima são ignorados): <strong>{{ form.overridden_by_constant.join(", ") }}</strong></p>\
+					</div>\
+				</div>\
+\
+				<div class="tim-section">\
+					<h2>Roteamento</h2>\
+					<div class="tim-form">\
+						<div class="tim-field"><label><input type="checkbox" v-model="form.route_item_lists"> Responder listagens de itens pelo índice</label><span class="tim-help">Desligado, só a busca por texto passa pelo índice; a navegação por coleção fica no SQL.</span></div>\
+						<div class="tim-field"><label><input type="checkbox" v-model="form.route_facets"> Responder facetas (filtros) pelo índice</label></div>\
+						<div class="tim-field"><label>Máximo de valores por faceta</label><input type="number" min="10" max="1000" v-model.number="form.facet_max_terms"><span class="tim-help">Facetas com mais valores distintos que isso voltam ao SQL, para a ordenação continuar fiel.</span></div>\
 					</div>\
 				</div>\
 \
@@ -748,7 +763,6 @@
 					<div class="tim-form">\
 						<div class="tim-field"><label><input type="checkbox" v-model="form.auto_indexing_enabled"> Habilitar processamento automático de lotes</label></div>\
 						<div class="tim-field"><label>Tamanho do lote</label><input type="number" min="1" max="1000" v-model.number="form.batch_size"></div>\
-						<div class="tim-field"><label>Intervalo entre lotes (segundos)</label><input type="number" min="0" max="600" v-model.number="form.batch_interval_seconds"></div>\
 						<div class="tim-field"><label>Tentativas máximas por item</label><input type="number" min="0" max="10" v-model.number="form.max_retries"></div>\
 					</div>\
 				</div>\
@@ -781,7 +795,6 @@
 				<div class="tim-section">\
 					<h2>Geral</h2>\
 					<div class="tim-form">\
-						<div class="tim-field"><label><input type="checkbox" v-model="form.fallback_enabled"> Habilitar fallback automático para busca SQL quando o ES falhar</label></div>\
 						<div class="tim-field"><label>Retenção dos logs (dias)</label><input type="number" min="1" max="365" v-model.number="form.log_retention_days"></div>\
 					</div>\
 				</div>\
@@ -1009,9 +1022,9 @@
 			icon: 'Aa',
 			lead: 'Ortografia antiga, formas estrangeiras, abreviações e siglas.',
 			how: 'Mesmo formato dos sinônimos. É o que mais rende em acervo histórico: o registro diz “pharmacia”, o público digita “farmácia”.',
-			example: 'pharmacia, farmácia\nphotographia, fotografia\nBrazil, Brasil\nIBRAM, Instituto Brasileiro de Museus',
+			example: 'pharmacia, farmácia\nphotographia, fotografia\nBrazil, Brasil\nUFMG, Universidade Federal de Minas Gerais',
 			tip: 'Siglas valem nos dois sentidos: buscar a sigla encontra o nome por extenso, e o contrário também.',
-			template: '# Grafias antigas, variantes, abreviações e siglas — mesmo formato dos sinônimos.\npharmacia, farmácia\nphotographia, fotografia\nBrazil, Brasil\nIBRAM, Instituto Brasileiro de Museus\n'
+			template: '# Grafias antigas, variantes, abreviações e siglas — mesmo formato dos sinônimos.\npharmacia, farmácia\nphotographia, fotografia\nBrazil, Brasil\nUFMG, Universidade Federal de Minas Gerais\n'
 		},
 		{
 			key: 'corrections',

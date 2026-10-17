@@ -144,7 +144,10 @@ class Elasticsearch_Client {
 	 */
 	public function bulk( array $lines ) {
 		if ( empty( $lines ) ) {
-			return array( 'errors' => false, 'items' => array() );
+			return array(
+				'errors' => false,
+				'items'  => array(),
+			);
 		}
 
 		$ndjson = '';
@@ -157,7 +160,11 @@ class Elasticsearch_Client {
 			$url,
 			array(
 				'method'  => 'POST',
-				'timeout' => $this->timeout(),
+				// A batch of up to 1,000 documents with dozens of nested metadata
+				// each takes longer than a search; cutting it at the search timeout
+				// failed the whole batch and retried it, forever. Bulk is background
+				// work, so it gets its own, longer ceiling.
+				'timeout' => max( 60, $this->timeout() * 4 ),
 				'headers' => array_merge(
 					$this->auth_headers(),
 					array( 'Content-Type' => 'application/x-ndjson' )
@@ -205,10 +212,12 @@ class Elasticsearch_Client {
 	 * @return array|\WP_Error
 	 */
 	public function search_live( string $index, array $query ) {
-		return $this->live( function () use ( $index, $query ) {
-			$index = $this->sanitize_index_name( $index );
-			return $this->request_live( 'POST', '/' . rawurlencode( $index ) . '/_search', $query );
-		} );
+		return $this->live(
+			function () use ( $index, $query ) {
+				$index = $this->sanitize_index_name( $index );
+				return $this->request_live( 'POST', '/' . rawurlencode( $index ) . '/_search', $query );
+			}
+		);
 	}
 
 	/**
@@ -217,14 +226,16 @@ class Elasticsearch_Client {
 	 * @return int|\WP_Error
 	 */
 	public function count_live( string $index, array $query = array() ) {
-		return $this->live( function () use ( $index, $query ) {
-			$index = $this->sanitize_index_name( $index );
-			$res   = $this->request_live( 'POST', '/' . rawurlencode( $index ) . '/_count', empty( $query ) ? null : $query );
-			if ( is_wp_error( $res ) ) {
-				return $res;
+		return $this->live(
+			function () use ( $index, $query ) {
+				$index = $this->sanitize_index_name( $index );
+				$res   = $this->request_live( 'POST', '/' . rawurlencode( $index ) . '/_count', empty( $query ) ? null : $query );
+				if ( is_wp_error( $res ) ) {
+						return $res;
+				}
+				return isset( $res['count'] ) ? (int) $res['count'] : new \WP_Error( 'tim_invalid_count_response', 'Resposta inesperada do _count.' );
 			}
-			return isset( $res['count'] ) ? (int) $res['count'] : new \WP_Error( 'tim_invalid_count_response', 'Resposta inesperada do _count.' );
-		} );
+		);
 	}
 
 	/**
@@ -281,10 +292,14 @@ class Elasticsearch_Client {
 			$new['failures']   = 0;
 			$new['open_until'] = time() + self::LIVE_BREAKER_REST;
 			$new['opened']    += 1;
-			$this->logger->warning( Logger::CHAN_FALLBACK, 'Elasticsearch falhou seguidamente: listagem e facetas vão direto ao SQL por alguns instantes.', array(
-				'seconds' => self::LIVE_BREAKER_REST,
-				'reason'  => $new['last_reason'],
-			) );
+			$this->logger->warning(
+				Logger::CHAN_FALLBACK,
+				'Elasticsearch falhou seguidamente: listagem e facetas vão direto ao SQL por alguns instantes.',
+				array(
+					'seconds' => self::LIVE_BREAKER_REST,
+					'reason'  => $new['last_reason'],
+				)
+			);
 		}
 
 		// Autoloaded: read on every request, so it must ride along with alloptions
@@ -429,8 +444,8 @@ class Elasticsearch_Client {
 			return new \WP_Error( 'tim_es_not_configured', __( 'Elasticsearch/OpenSearch não está configurado.', 'tainacan-index-manager' ) );
 		}
 
-		$url     = $this->base_url() . $path;
-		$args    = array(
+		$url  = $this->base_url() . $path;
+		$args = array(
 			'method'  => $method,
 			'timeout' => $timeout > 0 ? max( $timeout, $this->timeout() ) : $this->timeout(),
 			'headers' => array_merge(
@@ -476,12 +491,16 @@ class Elasticsearch_Client {
 	 */
 	protected function parse_response( $res, string $method, string $path, array $tolerate_codes = array() ) {
 		if ( is_wp_error( $res ) ) {
-			$this->logger->error( Logger::CHAN_ELASTIC, 'Falha de transporte ao chamar Elasticsearch.', array(
-				'method'  => $method,
-				'path'    => $path,
-				'wp_code' => $res->get_error_code(),
-				'wp_msg'  => $res->get_error_message(),
-			) );
+			$this->logger->error(
+				Logger::CHAN_ELASTIC,
+				'Falha de transporte ao chamar Elasticsearch.',
+				array(
+					'method'  => $method,
+					'path'    => $path,
+					'wp_code' => $res->get_error_code(),
+					'wp_msg'  => $res->get_error_message(),
+				)
+			);
 			return $res;
 		}
 
@@ -492,8 +511,8 @@ class Elasticsearch_Client {
 			// Extract structured ES error info from the body when present
 			// (it ships type + reason + sometimes caused_by — far more useful
 			// in the log than the raw body blob).
-			$decoded   = json_decode( $body, true );
-			$err_type  = '';
+			$decoded    = json_decode( $body, true );
+			$err_type   = '';
 			$err_reason = '';
 			if ( is_array( $decoded ) && isset( $decoded['error'] ) ) {
 				if ( is_array( $decoded['error'] ) ) {
@@ -527,13 +546,17 @@ class Elasticsearch_Client {
 				);
 			}
 
-			$this->logger->error( Logger::CHAN_ELASTIC, $short_message, array(
-				'method'     => $method,
-				'path'       => $path,
-				'code'       => $code,
-				'error_type' => $err_type,
-				'reason'     => $err_reason,
-			) );
+			$this->logger->error(
+				Logger::CHAN_ELASTIC,
+				$short_message,
+				array(
+					'method'     => $method,
+					'path'       => $path,
+					'code'       => $code,
+					'error_type' => $err_type,
+					'reason'     => $err_reason,
+				)
+			);
 
 			$wp_error_message = '' !== $err_reason
 				? sprintf(
@@ -563,11 +586,15 @@ class Elasticsearch_Client {
 
 		$decoded = json_decode( $body, true );
 		if ( ! is_array( $decoded ) ) {
-			$this->logger->error( Logger::CHAN_ELASTIC, 'Resposta não-JSON do Elasticsearch.', array(
-				'method' => $method,
-				'path'   => $path,
-				'sample' => substr( $body, 0, 200 ),
-			) );
+			$this->logger->error(
+				Logger::CHAN_ELASTIC,
+				'Resposta não-JSON do Elasticsearch.',
+				array(
+					'method' => $method,
+					'path'   => $path,
+					'sample' => substr( $body, 0, 200 ),
+				)
+			);
 			return new \WP_Error( 'tim_es_invalid_json', __( 'Resposta do Elasticsearch não é JSON válido.', 'tainacan-index-manager' ) );
 		}
 		return $decoded;
@@ -580,7 +607,12 @@ class Elasticsearch_Client {
 	 */
 	public function ping(): array {
 		if ( ! $this->is_configured() ) {
-			return array( 'ok' => false, 'ms' => 0, 'code' => 0, 'error' => 'not_configured' );
+			return array(
+				'ok'    => false,
+				'ms'    => 0,
+				'code'  => 0,
+				'error' => 'not_configured',
+			);
 		}
 		$start = microtime( true );
 		$res   = wp_remote_get(
@@ -590,9 +622,14 @@ class Elasticsearch_Client {
 				'headers' => $this->auth_headers(),
 			)
 		);
-		$ms = (int) round( ( microtime( true ) - $start ) * 1000 );
+		$ms    = (int) round( ( microtime( true ) - $start ) * 1000 );
 		if ( is_wp_error( $res ) ) {
-			return array( 'ok' => false, 'ms' => $ms, 'code' => 0, 'error' => $res->get_error_message() );
+			return array(
+				'ok'    => false,
+				'ms'    => $ms,
+				'code'  => 0,
+				'error' => $res->get_error_message(),
+			);
 		}
 		$code = (int) wp_remote_retrieve_response_code( $res );
 		return array(
@@ -659,18 +696,30 @@ class Elasticsearch_Client {
 	public function describe_auth(): array {
 		$apikey = (string) $this->settings->get( 'es_api_key', '' );
 		if ( '' !== $apikey ) {
-			return array( 'method' => 'api_key', 'user' => '' );
+			return array(
+				'method' => 'api_key',
+				'user'   => '',
+			);
 		}
 		$user = (string) $this->settings->get( 'es_username', '' );
 		$pass = (string) $this->settings->get( 'es_password', '' );
 		if ( '' !== $user || '' !== $pass ) {
-			return array( 'method' => 'basic_auth', 'user' => $user );
+			return array(
+				'method' => 'basic_auth',
+				'user'   => $user,
+			);
 		}
 		$inline = self::parse_inline_credentials( (string) $this->settings->get( 'es_url', '' ) );
 		if ( '' !== $inline['user'] || '' !== $inline['pass'] ) {
-			return array( 'method' => 'basic_auth_inline', 'user' => $inline['user'] );
+			return array(
+				'method' => 'basic_auth_inline',
+				'user'   => $inline['user'],
+			);
 		}
-		return array( 'method' => 'none', 'user' => '' );
+		return array(
+			'method' => 'none',
+			'user'   => '',
+		);
 	}
 
 	/**
@@ -694,7 +743,11 @@ class Elasticsearch_Client {
 	 * @return array{url:string, user:string, pass:string}
 	 */
 	public static function parse_inline_credentials( string $url ): array {
-		$out = array( 'url' => $url, 'user' => '', 'pass' => '' );
+		$out = array(
+			'url'  => $url,
+			'user' => '',
+			'pass' => '',
+		);
 		if ( '' === $url ) {
 			return $out;
 		}

@@ -66,8 +66,18 @@ final class Indexer {
 		if ( ! $this->is_tainacan_item_post_type( $post->post_type ) ) {
 			return;
 		}
+		// Without an index to write to, queued IDs only make the option grow —
+		// one serialized array rewritten on every save, forever. Routing being
+		// off (engine=sql, ElasticPress) is not a reason to stop: the index
+		// still has to be current the day routing is switched back on.
+		if ( ! $this->client->is_configured() ) {
+			return;
+		}
 		$this->enqueue( array( (int) $post_id ) );
 	}
+
+	/** Upper bound for the queue option: beyond this, enqueueing waits for the drain. */
+	private const QUEUE_HARD_CAP = 500000;
 
 	/**
 	 * Hook: on delete, remove the document immediately if possible.
@@ -88,10 +98,14 @@ final class Indexer {
 		$index = (string) $this->settings->get( 'index_name' );
 		$res   = $this->client->delete_document( $index, (string) $post_id );
 		if ( is_wp_error( $res ) ) {
-			$this->logger->warning( Logger::CHAN_INDEXER, 'Falha ao apagar documento do índice.', array(
-				'item_id' => (int) $post_id,
-				'error'   => $res->get_error_message(),
-			) );
+			$this->logger->warning(
+				Logger::CHAN_INDEXER,
+				'Falha ao apagar documento do índice.',
+				array(
+					'item_id' => (int) $post_id,
+					'error'   => $res->get_error_message(),
+				)
+			);
 		}
 	}
 
@@ -111,10 +125,23 @@ final class Indexer {
 		$queue  = $this->mutate_queue(
 			static function ( array $current ) use ( $ids, &$before ): array {
 				$before = count( $current );
+				if ( $before >= self::QUEUE_HARD_CAP ) {
+					return $current;
+				}
 				return array_merge( $current, $ids );
 			}
 		);
 		$added  = count( $queue ) - $before;
+		if ( 0 === $added && $before >= self::QUEUE_HARD_CAP ) {
+			$this->logger->error(
+				Logger::CHAN_INDEXER,
+				'Fila de indexação cheia; itens não enfileirados.',
+				array(
+					'cap'   => self::QUEUE_HARD_CAP,
+					'count' => count( $ids ),
+				)
+			);
+		}
 
 		$this->metrics->observe_queue_size( count( $queue ) );
 		return $added;
@@ -137,7 +164,7 @@ final class Indexer {
 
 		// GET_LOCK names are server-wide, and the database server is shared by
 		// many sites: the name has to be unique to this site's options table.
-		$lock   = 'tim_queue_' . md5( DB_NAME . '|' . $wpdb->options );
+		$lock = 'tim_queue_' . md5( DB_NAME . '|' . $wpdb->options );
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- advisory lock, nothing to cache.
 		$locked = '1' === (string) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $lock, 10 ) );
 
@@ -166,9 +193,14 @@ final class Indexer {
 	 * Replace the entire queue with all Tainacan items (full reindex bootstrap).
 	 */
 	public function enqueue_all(): int {
-		$ids   = $this->fetch_all_tainacan_item_ids();
-		$queue = array_values( array_unique( $ids ) );
-		update_option( self::QUEUE_OPTION, $queue, false );
+		$ids = $this->fetch_all_tainacan_item_ids();
+		// Through the same lock as every other write: a harvest saving items while
+		// the button is clicked must not have its IDs overwritten by this list.
+		$queue = $this->mutate_queue(
+			static function ( array $current ) use ( $ids ): array {
+				return array_merge( $ids, $current );
+			}
+		);
 		$this->set_state( self::STATE_RUNNING );
 		$this->metrics->observe_queue_size( count( $queue ) );
 		$this->logger->info( Logger::CHAN_INDEXER, 'Fila de reindexação total preenchida.', array( 'count' => count( $queue ) ) );
@@ -180,14 +212,21 @@ final class Indexer {
 	 */
 	public function enqueue_collection( int $collection_id ): int {
 		$ids   = $this->fetch_collection_item_ids( $collection_id );
-		$queue = array_values( array_unique( $ids ) );
-		update_option( self::QUEUE_OPTION, $queue, false );
+		$queue = $this->mutate_queue(
+			static function ( array $current ) use ( $ids ): array {
+				return array_merge( $ids, $current );
+			}
+		);
 		$this->set_state( self::STATE_RUNNING );
 		$this->metrics->observe_queue_size( count( $queue ) );
-		$this->logger->info( Logger::CHAN_INDEXER, 'Fila de reindexação por coleção preenchida.', array(
-			'collection_id' => $collection_id,
-			'count'         => count( $queue ),
-		) );
+		$this->logger->info(
+			Logger::CHAN_INDEXER,
+			'Fila de reindexação por coleção preenchida.',
+			array(
+				'collection_id' => $collection_id,
+				'count'         => count( $queue ),
+			)
+		);
 		return count( $queue );
 	}
 
@@ -227,16 +266,67 @@ final class Indexer {
 			);
 		}
 
+		// One batch at a time. The minute tick, the "process batch" button and a
+		// late cron run can all arrive together; two of them building the same
+		// head of the queue index every document twice and double the _bulk load.
+		if ( ! $this->acquire_batch_lock() ) {
+			return array(
+				'ok'        => true,
+				'processed' => 0,
+				'remaining' => count( $queue ),
+				'state'     => $this->get_state(),
+				'message'   => __( 'Outro lote está em andamento.', 'tainacan-index-manager' ),
+			);
+		}
+
+		try {
+			return $this->run_batch( $queue );
+		} finally {
+			$this->release_batch_lock();
+		}
+	}
+
+	private const BATCH_LOCK = 'tainacan_idxmgr_batch_lock';
+
+	/**
+	 * Take the batch lock. A lock older than its TTL is considered abandoned
+	 * (a PHP process killed mid-batch) and is taken over.
+	 */
+	private function acquire_batch_lock(): bool {
+		$ttl = 2 * MINUTE_IN_SECONDS;
+		if ( wp_using_ext_object_cache() ) {
+			return (bool) wp_cache_add( self::BATCH_LOCK, time(), 'tainacan_index_manager', $ttl );
+		}
+		$held = get_transient( self::BATCH_LOCK );
+		if ( false !== $held && time() - (int) $held < $ttl ) {
+			return false;
+		}
+		set_transient( self::BATCH_LOCK, time(), $ttl );
+		return true;
+	}
+
+	private function release_batch_lock(): void {
+		if ( wp_using_ext_object_cache() ) {
+			wp_cache_delete( self::BATCH_LOCK, 'tainacan_index_manager' );
+			return;
+		}
+		delete_transient( self::BATCH_LOCK );
+	}
+
+	/**
+	 * The body of process_batch(), run under the batch lock.
+	 */
+	private function run_batch( array $queue ): array {
 		$this->set_state( self::STATE_RUNNING );
 		$batch_size   = (int) $this->settings->get( 'batch_size', 50 );
 		$batch        = array_slice( $queue, 0, $batch_size );
 		$queue_before = count( $queue );
 		$start_ts     = microtime( true );
 
-		$index    = (string) $this->settings->get( 'index_name' );
-		$lines    = array();
-		$built    = 0;
-		$skipped  = array();
+		$index   = (string) $this->settings->get( 'index_name' );
+		$lines   = array();
+		$built   = 0;
+		$skipped = array();
 
 		foreach ( $batch as $item_id ) {
 			$doc = $this->build_document( (int) $item_id );
@@ -244,22 +334,31 @@ final class Indexer {
 				$skipped[] = (int) $item_id;
 				continue;
 			}
-			$lines[] = array( 'index' => array( '_index' => $index, '_id' => (string) $item_id ) );
+			$lines[] = array(
+				'index' => array(
+					'_index' => $index,
+					'_id'    => (string) $item_id,
+				),
+			);
 			$lines[] = $doc;
 			++$built;
 		}
 
-		$indexed         = 0;
-		$failed          = array();
-		$error_summary   = array(); // type => array('count' => N, 'sample_reason' => string, 'sample_id' => int)
+		$indexed       = 0;
+		$failed        = array();
+		$error_summary = array(); // type => array('count' => N, 'sample_reason' => string, 'sample_id' => int)
 
 		if ( ! empty( $lines ) ) {
 			$res = $this->client->bulk( $lines );
 			if ( is_wp_error( $res ) ) {
-				$this->logger->error( Logger::CHAN_INDEXER, 'Falha no _bulk.', array(
-					'count' => $built,
-					'error' => $res->get_error_message(),
-				) );
+				$this->logger->error(
+					Logger::CHAN_INDEXER,
+					'Falha no _bulk.',
+					array(
+						'count' => $built,
+						'error' => $res->get_error_message(),
+					)
+				);
 				return array(
 					'ok'        => false,
 					'processed' => 0,
@@ -278,7 +377,10 @@ final class Indexer {
 							$failed[] = $failed_id;
 						}
 
-						$err_obj = is_array( $op['error'] ) ? $op['error'] : array( 'type' => 'unknown', 'reason' => (string) $op['error'] );
+						$err_obj = is_array( $op['error'] ) ? $op['error'] : array(
+							'type'   => 'unknown',
+							'reason' => (string) $op['error'],
+						);
 						$type    = isset( $err_obj['type'] ) ? (string) $err_obj['type'] : 'unknown';
 						$reason  = isset( $err_obj['reason'] ) ? (string) $err_obj['reason'] : '';
 						// Drill into caused_by if present — that's where the actual diagnostic lives.
@@ -329,10 +431,10 @@ final class Indexer {
 		$processed_ids = array_merge( $batch, $skipped );
 
 		// Re-queue failures that haven't exceeded max retries.
-		$failures   = $this->load_failures();
-		$max_retry  = (int) $this->settings->get( 'max_retries', 3 );
-		$dropped    = 0;
-		$requeue    = array();
+		$failures  = $this->load_failures();
+		$max_retry = (int) $this->settings->get( 'max_retries', 3 );
+		$dropped   = 0;
+		$requeue   = array();
 
 		foreach ( $failed as $fid ) {
 			$failures[ $fid ] = ( $failures[ $fid ] ?? 0 ) + 1;
@@ -360,19 +462,21 @@ final class Indexer {
 
 		$duration_ms = (int) round( ( microtime( true ) - $start_ts ) * 1000 );
 		$this->settings->mark_timestamp( 'last_index_run_ts' );
-		$this->metrics->record_run( array(
-			'ts'            => time(),
-			'duration_ms'   => $duration_ms,
-			'built'         => $built,
-			'indexed'       => $indexed,
-			'failed'        => count( $failed ),
-			'skipped'       => count( $skipped ),
-			'dropped'       => $dropped,
-			'queue_before'  => $queue_before,
-			'queue_after'   => $remaining,
-			'failed_ids'    => $failed,
-			'error_summary' => $error_summary,
-		) );
+		$this->metrics->record_run(
+			array(
+				'ts'            => time(),
+				'duration_ms'   => $duration_ms,
+				'built'         => $built,
+				'indexed'       => $indexed,
+				'failed'        => count( $failed ),
+				'skipped'       => count( $skipped ),
+				'dropped'       => $dropped,
+				'queue_before'  => $queue_before,
+				'queue_after'   => $remaining,
+				'failed_ids'    => $failed,
+				'error_summary' => $error_summary,
+			)
+		);
 		$this->logger->info(
 			Logger::CHAN_INDEXER,
 			'Lote de indexação processado.',
@@ -541,10 +645,14 @@ final class Indexer {
 					}
 				}
 			} catch ( \Throwable $e ) {
-				$this->logger->warning( Logger::CHAN_INDEXER, 'Falha ao montar metadados Tainacan para item; usando fallback.', array(
-					'item_id' => (int) $post->ID,
-					'error'   => $e->getMessage(),
-				) );
+				$this->logger->warning(
+					Logger::CHAN_INDEXER,
+					'Falha ao montar metadados Tainacan para item; usando fallback.',
+					array(
+						'item_id' => (int) $post->ID,
+						'error'   => $e->getMessage(),
+					)
+				);
 			}
 		}
 
@@ -584,7 +692,7 @@ final class Indexer {
 			);
 		}
 
-		$batch      = max( 100, min( 5000, $batch ) );
+		$batch        = max( 100, min( 5000, $batch ) );
 		$search_after = null;
 
 		for ( $round = 0; $round < $max_batches; $round++ ) {
@@ -629,19 +737,25 @@ final class Indexer {
 
 			// One query per batch, by primary key: cheap even for large indexes.
 			$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
-			$sql          = $wpdb->prepare(
-				// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- placeholders built from a counted int array.
+			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- IN-clause built with array_fill of %d placeholders matching $ids count; $wpdb->posts is trusted.
+			$sql = $wpdb->prepare(
 				"SELECT ID FROM {$wpdb->posts} WHERE ID IN ($placeholders) AND post_status IN ('publish','private','draft')",
 				$ids
 			);
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- reconciliation task, must bypass caches.
+			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- $sql prepared above; reconciliation against the index must read the database, not a cache.
 			$alive = $wpdb->get_col( $sql );
 			$alive = array_flip( array_map( 'intval', (array) $alive ) );
 
 			$lines = array();
 			foreach ( $ids as $id ) {
 				if ( ! isset( $alive[ $id ] ) ) {
-					$lines[] = array( 'delete' => array( '_index' => $index, '_id' => (string) $id ) );
+					$lines[] = array(
+						'delete' => array(
+							'_index' => $index,
+							'_id'    => (string) $id,
+						),
+					);
 				}
 			}
 
@@ -665,10 +779,14 @@ final class Indexer {
 
 		$this->client->refresh( $index );
 
-		$this->logger->info( Logger::CHAN_INDEXER, 'Reconciliação do índice concluída.', array(
-			'scanned' => $scanned,
-			'deleted' => $deleted,
-		) );
+		$this->logger->info(
+			Logger::CHAN_INDEXER,
+			'Reconciliação do índice concluída.',
+			array(
+				'scanned' => $scanned,
+				'deleted' => $deleted,
+			)
+		);
 
 		return array(
 			'ok'      => true,
@@ -794,11 +912,13 @@ final class Indexer {
 		if ( class_exists( '\\Tainacan\\Repositories\\Items' ) ) {
 			try {
 				$repo  = call_user_func( array( '\\Tainacan\\Repositories\\Items', 'get_instance' ) );
-				$query = $repo->fetch( array(
-					'posts_per_page' => -1,
-					'post_status'    => array( 'publish', 'private', 'draft' ),
-					'fields'         => 'ids',
-				) );
+				$query = $repo->fetch(
+					array(
+						'posts_per_page' => -1,
+						'post_status'    => array( 'publish', 'private', 'draft' ),
+						'fields'         => 'ids',
+					)
+				);
 				if ( is_object( $query ) && isset( $query->posts ) && is_array( $query->posts ) ) {
 					$ids = array_map( 'intval', $query->posts );
 				}
@@ -810,13 +930,15 @@ final class Indexer {
 		if ( empty( $ids ) ) {
 			$types = $this->get_known_post_types();
 			if ( ! empty( $types ) ) {
-				$ids = get_posts( array(
-					'post_type'      => $types,
-					'posts_per_page' => -1,
-					'post_status'    => array( 'publish', 'private', 'draft' ),
-					'fields'         => 'ids',
-					'no_found_rows'  => true,
-				) );
+				$ids = get_posts(
+					array(
+						'post_type'      => $types,
+						'posts_per_page' => -1,
+						'post_status'    => array( 'publish', 'private', 'draft' ),
+						'fields'         => 'ids',
+						'no_found_rows'  => true,
+					)
+				);
 				$ids = array_map( 'intval', (array) $ids );
 			}
 		}
@@ -843,19 +965,25 @@ final class Indexer {
 				return array();
 			}
 			$post_type = $collection->get_db_identifier();
-			$ids       = get_posts( array(
-				'post_type'      => $post_type,
-				'posts_per_page' => -1,
-				'post_status'    => array( 'publish', 'private', 'draft' ),
-				'fields'         => 'ids',
-				'no_found_rows'  => true,
-			) );
+			$ids       = get_posts(
+				array(
+					'post_type'      => $post_type,
+					'posts_per_page' => -1,
+					'post_status'    => array( 'publish', 'private', 'draft' ),
+					'fields'         => 'ids',
+					'no_found_rows'  => true,
+				)
+			);
 			return array_map( 'intval', (array) $ids );
 		} catch ( \Throwable $e ) {
-			$this->logger->warning( Logger::CHAN_INDEXER, 'Falha ao listar itens da coleção.', array(
-				'collection_id' => $collection_id,
-				'error'         => $e->getMessage(),
-			) );
+			$this->logger->warning(
+				Logger::CHAN_INDEXER,
+				'Falha ao listar itens da coleção.',
+				array(
+					'collection_id' => $collection_id,
+					'error'         => $e->getMessage(),
+				)
+			);
 			return array();
 		}
 	}
@@ -881,13 +1009,16 @@ final class Indexer {
 		$chunks  = array_chunk( $all_ids, 1000 );
 
 		foreach ( $chunks as $chunk ) {
-			$res = $this->client->search( $index, array(
-				'size'    => count( $chunk ),
-				'_source' => false,
-				'query'   => array(
-					'terms' => array( 'item_id' => array_map( 'intval', $chunk ) ),
-				),
-			) );
+			$res = $this->client->search(
+				$index,
+				array(
+					'size'    => count( $chunk ),
+					'_source' => false,
+					'query'   => array(
+						'terms' => array( 'item_id' => array_map( 'intval', $chunk ) ),
+					),
+				)
+			);
 
 			$found = array();
 			if ( is_array( $res ) && isset( $res['hits']['hits'] ) && is_array( $res['hits']['hits'] ) ) {

@@ -2,9 +2,9 @@
 Contributors: marcossigismundo
 Tags: tainacan, elasticsearch, opensearch, search, indexing, synonyms
 Requires at least: 6.0
-Tested up to: 6.9
+Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.3.3
+Stable tag: 1.4.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -49,6 +49,21 @@ Não. O vocabulário só muda o analisador de busca. O índice fica fechado por 
 A busca degrada automaticamente para SQL, o semáforo fica vermelho, um alerta é levantado e o evento é registrado nos logs.
 
 == Changelog ==
+
+= 1.4.0 =
+* **Carga no banco:** com o Elasticsearch não configurado (estado de uma instalação nova) o plugin não grava mais um registro de log e um transient a cada consulta do Tainacan; com o disjuntor aberto, listagens e facetas também deixam de gerar uma linha por consulta. O mesmo motivo de retorno ao SQL é anotado no máximo uma vez por minuto.
+* **Fila de indexação:** "Indexar tudo" e "Reindexar coleção" passam pela mesma trava das outras escritas (não perdem mais itens salvos durante o clique); um lote por vez (trava de 2 min); itens só entram na fila quando há índice configurado; teto de 500 mil IDs.
+* `_bulk` ganha prazo próprio (mínimo 60 s) em vez do prazo da busca.
+* A sonda de "completar palavras" é lembrada por 10 minutos por palavra.
+* **ElasticPress:** se estiver ativo, o plugin deixa de responder listagens e facetas (dois mecanismos na mesma consulta divergem), mas continua indexando os itens; aviso no painel.
+* **Credenciais por constante:** `TIM_ES_URL`, `TIM_ES_USERNAME`, `TIM_ES_PASSWORD` e `TIM_ES_API_KEY` no `wp-config.php` têm precedência sobre a tela e tiram o segredo do banco. Novo `Settings::connection()` para outros plugins reutilizarem a conexão em vez de lerem a option.
+* `Index_Manager::MAPPING_VERSION` para plugins que consultam o índice diretamente.
+* URL do Elasticsearch restrita a http/https.
+* **Configurações:** roteamento de listagens, roteamento de facetas, máximo de valores por faceta e o tempo limite do visitante aparecem na tela; "fallback automático" e "intervalo entre lotes" (sem efeito) removidos. Novo campo **Idioma dos analisadores**. O nome padrão do índice passa a ser derivado do endereço do site (instalações existentes mantêm o nome gravado).
+* `Plugin::instance()` ganha `is_booted()` e `is_routing()`; os getters devolvem `null` antes do boot em vez de lançar erro.
+* Multisite: ativação em rede instala em todos os sites e em sites novos; desinstalação idem. Rotina de atualização para instalações feitas por cópia.
+* Painel só regrava um alerta inalterado uma vez por minuto.
+* Pacote: `tools/`, `docs/` e o contexto de desenvolvimento ficam fora do ZIP; `phpcs.xml.dist` estrito, `composer.json` e CI (phpcs + Plugin Check); `Tested up to: 7.1`.
 
 = 1.3.3 =
 * Listagem, facetas e a sugestão da busca esperam o Elasticsearch no máximo `search_timeout` (1,5 s por padrão), em vez do `es_timeout` (5 s). Depois de três falhas seguidas, essas consultas vão direto ao SQL por dois minutos (disjuntor em `tainacan_idxmgr_live_breaker`). Indexação, limpeza de órfãos e saúde continuam com o prazo longo.

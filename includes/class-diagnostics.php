@@ -376,7 +376,12 @@ final class Diagnostics {
 	 * Roll the findings up into a single severity + headline.
 	 */
 	private function compile( array $findings ): array {
-		$rank = array( 'ok' => 0, 'info' => 1, 'warning' => 2, 'critical' => 3 );
+		$rank = array(
+			'ok'       => 0,
+			'info'     => 1,
+			'warning'  => 2,
+			'critical' => 3,
+		);
 		$max  = 'ok';
 		foreach ( $findings as $f ) {
 			$s = $f['severity'] ?? 'ok';

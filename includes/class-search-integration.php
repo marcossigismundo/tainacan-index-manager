@@ -84,17 +84,34 @@ final class Search_Integration {
 		// Lets the builder check whether the last typed word exists before
 		// expanding it as the start of a word ("fotogr" → fotografia). A cheap
 		// _count, cached per request; any failure simply means "no expansion".
-		ES_Query_Builder::set_count_probe( function ( array $clause ): ?int {
-			$res = $this->client->count_live( (string) $this->settings->get( 'index_name' ), array(
-				'query' => array(
-					'bool' => array(
-						'must'   => array( $clause ),
-						'filter' => array( array( 'terms' => array( 'post_status' => array( 'publish', 'private' ) ) ) ),
-					),
-				),
-			) );
-			return is_wp_error( $res ) ? null : (int) $res;
-		} );
+		ES_Query_Builder::set_count_probe(
+			function ( array $clause ): ?int {
+				// Paging through results repeats the same words, so the probe is
+				// remembered per clause for a few minutes: one _count per word, not
+				// one per page view. Only hits are cached; a failure is retried.
+				$key    = 'tim_probe_' . md5( (string) wp_json_encode( $clause ) );
+				$cached = get_transient( $key );
+				if ( false !== $cached ) {
+						return (int) $cached;
+				}
+				$res = $this->client->count_live(
+					(string) $this->settings->get( 'index_name' ),
+					array(
+						'query' => array(
+							'bool' => array(
+								'must'   => array( $clause ),
+								'filter' => array( array( 'terms' => array( 'post_status' => array( 'publish', 'private' ) ) ) ),
+							),
+						),
+					)
+				);
+				if ( is_wp_error( $res ) ) {
+					return null;
+				}
+				set_transient( $key, (int) $res, 10 * MINUTE_IN_SECONDS );
+				return (int) $res;
+			}
+		);
 	}
 
 	/**
@@ -118,9 +135,11 @@ final class Search_Integration {
 		}
 
 		try {
-			return self::without_routing( function () use ( $query ) {
-				return $this->answer( $query );
-			} );
+			return self::without_routing(
+				function () use ( $query ) {
+					return $this->answer( $query );
+				}
+			);
 		} catch ( \Throwable $e ) {
 			// A bug here must never take down a collection page.
 			$this->mark_fallback( 'exception', $e->getMessage() );
@@ -171,7 +190,10 @@ final class Search_Integration {
 		$index = (string) $this->settings->get( 'index_name' );
 		$res   = $this->client->search_live( $index, $payload );
 		if ( is_wp_error( $res ) ) {
-			$this->mark_fallback( 'es_query_error', $res->get_error_message() );
+			$this->mark_fallback(
+				'tim_es_breaker_open' === $res->get_error_code() ? 'es_breaker_open' : 'es_query_error',
+				$res->get_error_message()
+			);
 			return null;
 		}
 
@@ -276,7 +298,11 @@ final class Search_Integration {
 			}
 		}
 		if ( ! $this->client->is_configured() ) {
-			$this->mark_fallback( 'es_not_configured' );
+			// Not configured is a steady state, not a fault: a fresh installation
+			// runs every Tainacan WP_Query through here, and logging each one wrote
+			// dozens of rows (plus a transient) per admin screen until someone
+			// filled in the URL. The health service already reports "not
+			// configured" once; this gate just stays out of the way.
 			return false;
 		}
 
@@ -285,9 +311,25 @@ final class Search_Integration {
 
 	/**
 	 * Engine setting gate, shared by search and facet routing.
+	 *
+	 * Also stands down when ElasticPress is active: Tainacan's core routes
+	 * `posts_pre_query` and `tainacan-fetch-all-metadatum-values` through it,
+	 * and two engines answering the same query disagree on totals and facets.
+	 * Indexing is unaffected — items keep flowing into this plugin's index, so
+	 * routing can be switched back on the moment ElasticPress is removed.
 	 */
 	public function engine_allows_routing(): bool {
+		if ( self::elasticpress_active() ) {
+			return false;
+		}
 		return Settings::ENGINE_SQL !== $this->settings->engine();
+	}
+
+	/**
+	 * Is ElasticPress loaded on this site?
+	 */
+	public static function elasticpress_active(): bool {
+		return defined( 'EP_VERSION' ) || class_exists( '\ElasticPress\Elasticsearch' );
 	}
 
 	/**
@@ -480,19 +522,21 @@ final class Search_Integration {
 			try {
 				// This fetch runs a WP_Query; without_routing() keeps it from
 				// re-entering this class through posts_pre_query.
-				$types = self::without_routing( static function () {
-					$found = array();
-					$repo  = call_user_func( array( '\\Tainacan\\Repositories\\Collections', 'get_instance' ) );
-					$cols  = $repo->fetch( array( 'posts_per_page' => -1 ), 'OBJECT' );
-					if ( is_array( $cols ) ) {
-						foreach ( $cols as $c ) {
-							if ( is_object( $c ) && method_exists( $c, 'get_db_identifier' ) ) {
-								$found[] = (string) $c->get_db_identifier();
+				$types = self::without_routing(
+					static function () {
+						$found = array();
+						$repo  = call_user_func( array( '\\Tainacan\\Repositories\\Collections', 'get_instance' ) );
+						$cols  = $repo->fetch( array( 'posts_per_page' => -1 ), 'OBJECT' );
+						if ( is_array( $cols ) ) {
+							foreach ( $cols as $c ) {
+								if ( is_object( $c ) && method_exists( $c, 'get_db_identifier' ) ) {
+									$found[] = (string) $c->get_db_identifier();
+								}
 							}
 						}
+						return $found;
 					}
-					return $found;
-				} );
+				);
 			} catch ( \Throwable $e ) {
 				// best effort.
 				$types = array();
@@ -503,16 +547,48 @@ final class Search_Integration {
 		return $cache;
 	}
 
+	/**
+	 * Record that a query was answered by SQL instead of the index.
+	 *
+	 * The flag feeds the status light; the log row is for diagnosis. Neither
+	 * needs repeating for every query of the same outage: while the circuit
+	 * breaker is open the client fails fast on purpose, and a busy site runs
+	 * several lists and facets per page. So the same reason is written at most
+	 * once a minute, and a breaker refusal is never logged (the breaker opening
+	 * was). On 07/10/2026 that write-per-facet was one more load on a database
+	 * server already at its connection limit.
+	 */
 	private function mark_fallback( string $reason, string $detail = '' ): void {
-		set_transient( self::FLAG_FALLBACK_ACTIVE, array(
-			'since'  => time(),
-			'reason' => $reason,
-			'detail' => $detail,
-		), HOUR_IN_SECONDS );
-		$this->logger->warning( Logger::CHAN_FALLBACK, 'Busca degradada para SQL.', array(
-			'reason' => $reason,
-			'detail' => $detail,
-		) );
+		$breaker = false !== strpos( $detail, 'tim_es_breaker_open' ) || 'es_breaker_open' === $reason;
+
+		$current = $this->last_fallback();
+		if ( is_array( $current )
+			&& ( $current['reason'] ?? '' ) === $reason
+			&& time() - (int) ( $current['since'] ?? 0 ) < MINUTE_IN_SECONDS ) {
+			return;
+		}
+
+		set_transient(
+			self::FLAG_FALLBACK_ACTIVE,
+			array(
+				'since'  => time(),
+				'reason' => $reason,
+				'detail' => $detail,
+			),
+			HOUR_IN_SECONDS
+		);
+
+		if ( $breaker ) {
+			return;
+		}
+		$this->logger->warning(
+			Logger::CHAN_FALLBACK,
+			'Busca degradada para SQL.',
+			array(
+				'reason' => $reason,
+				'detail' => $detail,
+			)
+		);
 	}
 
 	private function clear_fallback(): void {

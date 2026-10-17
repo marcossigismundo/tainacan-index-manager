@@ -59,10 +59,22 @@ final class Cron {
 		if ( ! is_array( $schedules ) ) {
 			$schedules = array();
 		}
-		$schedules['tim_15min']  = array( 'interval' => 15 * MINUTE_IN_SECONDS, 'display' => __( 'A cada 15 minutos (TIM)', 'tainacan-index-manager' ) );
-		$schedules['tim_30min']  = array( 'interval' => 30 * MINUTE_IN_SECONDS, 'display' => __( 'A cada 30 minutos (TIM)', 'tainacan-index-manager' ) );
-		$schedules['tim_6hours'] = array( 'interval' => 6 * HOUR_IN_SECONDS,    'display' => __( 'A cada 6 horas (TIM)', 'tainacan-index-manager' ) );
-		$schedules['tim_minute'] = array( 'interval' => MINUTE_IN_SECONDS,      'display' => __( 'A cada minuto (TIM)', 'tainacan-index-manager' ) );
+		$schedules['tim_15min']  = array(
+			'interval' => 15 * MINUTE_IN_SECONDS,
+			'display'  => __( 'A cada 15 minutos (TIM)', 'tainacan-index-manager' ),
+		);
+		$schedules['tim_30min']  = array(
+			'interval' => 30 * MINUTE_IN_SECONDS,
+			'display'  => __( 'A cada 30 minutos (TIM)', 'tainacan-index-manager' ),
+		);
+		$schedules['tim_6hours'] = array(
+			'interval' => 6 * HOUR_IN_SECONDS,
+			'display'  => __( 'A cada 6 horas (TIM)', 'tainacan-index-manager' ),
+		);
+		$schedules['tim_minute'] = array(
+			'interval' => MINUTE_IN_SECONDS,
+			'display'  => __( 'A cada minuto (TIM)', 'tainacan-index-manager' ),
+		);
 		return $schedules;
 	}
 
@@ -142,6 +154,13 @@ final class Cron {
 	public function run_cleanup_tick(): void {
 		$days  = (int) $this->settings->get( 'log_retention_days', 30 );
 		$count = $this->logger->purge_older_than( $days );
-		$this->logger->info( Logger::CHAN_CRON, 'Logs antigos purgados.', array( 'deleted' => $count, 'days' => $days ) );
+		$this->logger->info(
+			Logger::CHAN_CRON,
+			'Logs antigos purgados.',
+			array(
+				'deleted' => $count,
+				'days'    => $days,
+			)
+		);
 	}
 }

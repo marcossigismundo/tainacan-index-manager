@@ -67,33 +67,33 @@ final class Health_Service {
 			'engine_choice'            => (string) $this->settings->get( 'engine' ),
 			'es_configured'            => $this->client->is_configured(),
 			'es_reachable'             => false,
-			'es_ping_ms'                => null,
-			'es_version'                => null,
-			'cluster_status'            => null,
-			'cluster'                   => null,
-			'index_status'              => null,
-			'index_unassigned_shards'   => null,
-			'single_node_cluster'       => false,
-			'index_name'                => (string) $this->settings->get( 'index_name' ),
-			'index_exists'              => false,
-			'index_doc_count'           => null,
-			'index_size_bytes'          => null,
-			'tainacan_item_count'       => $this->count_tainacan_items(),
-			'coverage_pct'              => null,
-			'divergence_pct'            => null,
-			'divergence_threshold_pct'  => (int) $this->settings->get( 'divergence_threshold_pct', 5 ),
-			'fallback_active'           => false,
-			'last_health_check_ts'      => (int) $this->settings->get( 'last_health_check_ts', 0 ),
-			'last_index_run_ts'         => (int) $this->settings->get( 'last_index_run_ts', 0 ),
-			'effective_engine'          => 'sql',
-			'overall_status'            => 'unknown',
-			'overall_message'           => '',
-			'tainacan_active'           => $this->is_tainacan_active(),
+			'es_ping_ms'               => null,
+			'es_version'               => null,
+			'cluster_status'           => null,
+			'cluster'                  => null,
+			'index_status'             => null,
+			'index_unassigned_shards'  => null,
+			'single_node_cluster'      => false,
+			'index_name'               => (string) $this->settings->get( 'index_name' ),
+			'index_exists'             => false,
+			'index_doc_count'          => null,
+			'index_size_bytes'         => null,
+			'tainacan_item_count'      => $this->count_tainacan_items(),
+			'coverage_pct'             => null,
+			'divergence_pct'           => null,
+			'divergence_threshold_pct' => (int) $this->settings->get( 'divergence_threshold_pct', 5 ),
+			'fallback_active'          => false,
+			'last_health_check_ts'     => (int) $this->settings->get( 'last_health_check_ts', 0 ),
+			'last_index_run_ts'        => (int) $this->settings->get( 'last_index_run_ts', 0 ),
+			'effective_engine'         => 'sql',
+			'overall_status'           => 'unknown',
+			'overall_message'          => '',
+			'tainacan_active'          => $this->is_tainacan_active(),
 		);
 
 		if ( ! $snapshot['es_configured'] ) {
-			$snapshot['overall_status']   = 'critical';
-			$snapshot['overall_message']  = __( 'Elasticsearch/OpenSearch não está configurado. A busca opera em modo SQL.', 'tainacan-index-manager' );
+			$snapshot['overall_status']  = 'critical';
+			$snapshot['overall_message'] = __( 'Elasticsearch/OpenSearch não está configurado. A busca opera em modo SQL.', 'tainacan-index-manager' );
 			$snapshot['fallback_active'] = true;
 			return $snapshot;
 		}
@@ -113,14 +113,14 @@ final class Health_Service {
 		if ( is_array( $health ) ) {
 			$snapshot['cluster_status'] = isset( $health['status'] ) ? sanitize_text_field( (string) $health['status'] ) : null;
 			$snapshot['cluster']        = array(
-				'status'                            => $snapshot['cluster_status'],
-				'number_of_nodes'                   => isset( $health['number_of_nodes'] ) ? (int) $health['number_of_nodes'] : null,
-				'active_primary_shards'             => isset( $health['active_primary_shards'] ) ? (int) $health['active_primary_shards'] : null,
-				'active_shards'                     => isset( $health['active_shards'] ) ? (int) $health['active_shards'] : null,
-				'relocating_shards'                 => isset( $health['relocating_shards'] ) ? (int) $health['relocating_shards'] : null,
-				'initializing_shards'               => isset( $health['initializing_shards'] ) ? (int) $health['initializing_shards'] : null,
-				'unassigned_shards'                 => isset( $health['unassigned_shards'] ) ? (int) $health['unassigned_shards'] : null,
-				'active_shards_percent_as_number'   => isset( $health['active_shards_percent_as_number'] ) ? (float) $health['active_shards_percent_as_number'] : null,
+				'status'                          => $snapshot['cluster_status'],
+				'number_of_nodes'                 => isset( $health['number_of_nodes'] ) ? (int) $health['number_of_nodes'] : null,
+				'active_primary_shards'           => isset( $health['active_primary_shards'] ) ? (int) $health['active_primary_shards'] : null,
+				'active_shards'                   => isset( $health['active_shards'] ) ? (int) $health['active_shards'] : null,
+				'relocating_shards'               => isset( $health['relocating_shards'] ) ? (int) $health['relocating_shards'] : null,
+				'initializing_shards'             => isset( $health['initializing_shards'] ) ? (int) $health['initializing_shards'] : null,
+				'unassigned_shards'               => isset( $health['unassigned_shards'] ) ? (int) $health['unassigned_shards'] : null,
+				'active_shards_percent_as_number' => isset( $health['active_shards_percent_as_number'] ) ? (float) $health['active_shards_percent_as_number'] : null,
 			);
 		}
 
@@ -333,15 +333,19 @@ final class Health_Service {
 				// Must come from the database. This count is the reference the index
 				// is measured against, so routing it through ES would make coverage
 				// compare the index with itself and always report 100%.
-				$query = Search_Integration::without_routing( static function () {
-					$repo = call_user_func( array( '\\Tainacan\\Repositories\\Items', 'get_instance' ) );
-					return $repo->fetch( array(
-						'post_status'    => array( 'publish', 'private', 'draft' ),
-						'posts_per_page' => 1,
-						'fields'         => 'ids',
-						'no_found_rows'  => false,
-					) );
-				} );
+				$query = Search_Integration::without_routing(
+					static function () {
+						$repo = call_user_func( array( '\\Tainacan\\Repositories\\Items', 'get_instance' ) );
+						return $repo->fetch(
+							array(
+								'post_status'    => array( 'publish', 'private', 'draft' ),
+								'posts_per_page' => 1,
+								'fields'         => 'ids',
+								'no_found_rows'  => false,
+							)
+						);
+					}
+				);
 				if ( is_object( $query ) && property_exists( $query, 'found_posts' ) ) {
 					return (int) $query->found_posts;
 				}
@@ -350,8 +354,8 @@ final class Health_Service {
 			}
 		}
 
-		$post_types  = $this->discover_tainacan_post_types();
-		$total       = 0;
+		$post_types = $this->discover_tainacan_post_types();
+		$total      = 0;
 		foreach ( $post_types as $pt ) {
 			$counts = wp_count_posts( $pt );
 			if ( $counts ) {
@@ -371,10 +375,13 @@ final class Health_Service {
 		if ( class_exists( '\\Tainacan\\Repositories\\Collections' ) ) {
 			try {
 				$repo        = call_user_func( array( '\\Tainacan\\Repositories\\Collections', 'get_instance' ) );
-				$collections = $repo->fetch( array(
-					'posts_per_page' => -1,
-					'post_status'    => array( 'publish', 'private', 'draft' ),
-				), 'OBJECT' );
+				$collections = $repo->fetch(
+					array(
+						'posts_per_page' => -1,
+						'post_status'    => array( 'publish', 'private', 'draft' ),
+					),
+					'OBJECT'
+				);
 
 				if ( is_array( $collections ) ) {
 					foreach ( $collections as $coll ) {
@@ -393,5 +400,4 @@ final class Health_Service {
 	public function is_tainacan_active(): bool {
 		return defined( 'TAINACAN_VERSION' ) || class_exists( '\\Tainacan\\Theme_Helper' ) || class_exists( '\\Tainacan\\Repositories\\Items' );
 	}
-
 }

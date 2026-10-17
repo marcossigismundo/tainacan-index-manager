@@ -1,0 +1,46 @@
+name: Lint
+
+on:
+  push:
+    branches: [ main, develop, 'fix/**', 'feature/**' ]
+  pull_request:
+
+jobs:
+  phpcs:
+    name: PHP syntax + WPCS + Plugin Check sniffs
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: [ '7.4', '8.2' ]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          tools: composer:v2
+          coverage: none
+      - name: PHP syntax
+        run: |
+          find . -name '*.php' -not -path './vendor/*' -not -path './tools/*' -print0 | xargs -0 -n1 php -l
+      - name: Install sniffs
+        run: |
+          composer install --no-interaction --no-progress
+          git clone --depth 1 https://github.com/WordPress/plugin-check /tmp/plugin-check
+          vendor/bin/phpcs --config-set installed_paths "$(vendor/bin/phpcs --config-show | sed -n "s/^installed_paths: //p"),/tmp/plugin-check/phpcs-rulesets"
+          vendor/bin/phpcs -i
+      - name: PHPCS
+        run: vendor/bin/phpcs --standard=phpcs.xml.dist --report=summary --report=source
+
+  plugin-check:
+    name: WordPress Plugin Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build release zip (git archive respects export-ignore)
+        run: git archive --format=zip --prefix=tainacan-index-manager/ -o /tmp/plugin.zip HEAD
+      - uses: wordpress/plugin-check-action@v1
+        with:
+          build-dir: ${{ github.workspace }}
+          exclude-directories: 'tools,docs,tests,.github'
+          ignore-warnings: false
+          ignore-errors: false

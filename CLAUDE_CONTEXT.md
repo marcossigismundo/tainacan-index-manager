@@ -8,7 +8,7 @@ O README cobre a arquitetura em detalhe (schema do índice, tradução de querie
 
 ## Versão atual e onde está o trabalho
 
-**v1.3.2** — branch `main`, instalada no brasiliana3 em 06/10/2026 (o `feat/es-routing-facetas` foi mesclado em 24/09/2026). As seções do fim deste arquivo descrevem a 1.3.0 (semáforo, menu, vocabulário), as listas geradas, a 1.3.1 (busca nos metadados e completar palavras) e a 1.3.2 (fila atômica e reconciliação do índice do brasiliana3). Repositório: `github.com/marcossigismundo/tainacan-index-manager`.
+**v1.4.0** — branch `fix/revisao-2026-10` (revisão conjunta dos cinco plugins Tainacan de 17/10/2026; ver seção "1.4.0" no fim). Antes dela, **v1.3.3** na `main`, instalada no brasiliana3 em 06/10/2026 (o `feat/es-routing-facetas` foi mesclado em 24/09/2026). As seções do fim deste arquivo descrevem a 1.3.0 (semáforo, menu, vocabulário), as listas geradas, a 1.3.1 (busca nos metadados e completar palavras) e a 1.3.2 (fila atômica e reconciliação do índice do brasiliana3). Repositório: `github.com/marcossigismundo/tainacan-index-manager`.
 
 Este branch é o resultado de uma sessão de diagnóstico + implementação ao vivo em produção (`agregador.museus.gov.br`, ~37 mil itens, 1 coleção principal). Antes dele, o plugin tinha índice populado e **nunca usado** — ver seção "Como chegamos aqui".
 
@@ -299,3 +299,20 @@ busca de 12 itens) e o MariaDB compartilhado em 1000/1000 conexões. Cada listag
   listagem 223 ms sem nenhuma chamada ao ES.
 - No mesmo deploy: `WP_DEBUG` e `WP_DEBUG_LOG` desligados no wp-config do brasiliana3 (o `debug.log` tinha
   149 MB no NFS). Backup em `/root/backups/carga-20261007_162129/` no nó .99.
+
+## 1.4.0: revisão de segurança, carga e convivência (17/10/2026)
+
+Parte da revisão conjunta de cinco plugins (`tainacan-indicators`, `brasiliana-lod`→`tainacan-lod`, este, `tainacan-segmented-search`, `tainacan-item-print`); a estratégia completa fica em `C:\tmp\plugins-review\ESTRATEGIA-REVISAO.md` na máquina do Marcos. Este plugin foi o primeiro porque os outros dependem da API dele.
+
+O que mudou e por quê (detalhe no `readme.txt`):
+
+- **O disjuntor protegia o ES, não o banco.** Com `es_url` vazia (instalação nova), `should_handle()` chamava `mark_fallback('es_not_configured')` em toda `WP_Query` de item: um `set_transient` + um INSERT no log por consulta, dezenas por tela de admin, 24/7. E com o disjuntor aberto cada listagem/faceta gravava uma linha. Agora: não configurado não loga nada; o mesmo motivo é gravado no máximo uma vez por minuto; recusa do disjuntor (`tim_es_breaker_open`) nunca vira log.
+- **Fila:** `enqueue_all()`/`enqueue_collection()` gravavam a option sem `mutate_queue()` (o mesmo defeito que a 1.3.2 corrigiu em `process_batch`). `process_batch()` ganhou trava (`tainacan_idxmgr_batch_lock`, 2 min; `wp_cache_add` quando há cache de objetos). `on_save_post` só enfileira com ES configurado (roteamento desligado **não** impede indexar — decisão do Marcos: o índice tem que estar atual quando o roteamento voltar). Teto de 500k IDs.
+- **ElasticPress:** `Search_Integration::elasticpress_active()`; se ativo, `engine_allows_routing()` é falso (listas e facetas ficam com o EP/SQL) mas a indexação continua. Aviso nas telas do plugin.
+- **API para os irmãos:** `Plugin::is_booted()`, `Plugin::is_routing()`, getters anuláveis (antes lançavam `Error` de propriedade tipada se o boot falhasse), `Settings::connection()` (URL, credenciais resolvidas com as constantes, índice e `mapping_version`), `Index_Manager::MAPPING_VERSION` (= 1; subir quando um campo do documento mudar). O brasiliana-lod lia a option crua — deve passar a usar `connection()`.
+- **Segredos:** `TIM_ES_URL|USERNAME|PASSWORD|API_KEY` no `wp-config.php` sobrepõem a option (`Settings::all()`); a tela mostra quais estão fixos. `es_url` só http/https.
+- **Genericidade:** `analysis_language` (allowlist de stemmers do ES; os nomes dos filtros continuam `brazilian_*` porque o vocabulário aplicado os referencia); `index_name` padrão derivado de `home_url()` (ES compartilhado: dois sites no padrão apagavam o índice um do outro — aconteceu no rollback do agregador); instalações existentes mantêm o nome gravado. Settings `route_item_lists`, `route_facets`, `facet_max_terms` (máx. 1000) e `search_timeout` entraram na tela; `fallback_enabled` e `batch_interval_seconds` (nenhum PHP os lia) saíram.
+- **Multisite/upgrade:** `activate($network_wide)`, `wp_initialize_site`, `tainacan_idxmgr_db_version` com `maybe_upgrade()` no boot (deploy por cópia não roda o hook de ativação). `uninstall.php` percorre a rede e apaga transients por prefixo (`tim_probe_`, `tim_facet_oversized_`, cooldown de e-mail).
+- **Pacote:** `tools/`, `docs/`, `CLAUDE_CONTEXT.md`, `composer.json`, `.github` em `export-ignore` (o Plugin Check reprovava `tools/vocabulario/*.php`). `phpcs.xml.dist` com prefixos e `manage_tainacan`; `phpcbf` aplicado (alinhamento) — por isso o diff é grande. CI em `.github/workflows/lint.yml` (phpcs em 7.4/8.2 + Plugin Check). Arquivos das páginas renomeados para `class-tim-*-page.php`.
+
+Como verificar no ar (feito no `acervo-mhn` da VPS, Tainacan 1.4.0 + Blocksy + ES local): contagem de linhas em `wp_tainacan_idxmgr_logs` antes/depois de navegar listas com o ES desligado; salvar itens por WP-CLI e conferir que a fila não cresce sem ES; tela de Configurações mostra os campos novos.

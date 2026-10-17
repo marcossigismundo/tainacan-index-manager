@@ -19,6 +19,17 @@ defined( 'ABSPATH' ) || exit;
  */
 final class Index_Manager {
 
+	/**
+	 * Version of the document shape produced by {@see Indexer} and described by
+	 * {@see index_definition()}. Sibling plugins that query the index directly
+	 * (field names such as `metadata.value_keyword`, `taxonomies.term_ids`,
+	 * `post_status`) compare against this before trusting their own queries —
+	 * a renamed field returns empty buckets, not an error, so without a version
+	 * they would silently show nothing. Bump it whenever a field is renamed,
+	 * removed or changes type.
+	 */
+	public const MAPPING_VERSION = 1;
+
 	private Settings $settings;
 	private Logger $logger;
 	private Elasticsearch_Client $client;
@@ -63,12 +74,12 @@ final class Index_Manager {
 			'mappings' => array(
 				'dynamic'    => 'true',
 				'properties' => array(
-					'item_id'        => array( 'type' => 'long' ),
-					'collection_id'  => array( 'type' => 'long' ),
+					'item_id'         => array( 'type' => 'long' ),
+					'collection_id'   => array( 'type' => 'long' ),
 					'collection_name' => array( 'type' => 'keyword' ),
-					'post_type'      => array( 'type' => 'keyword' ),
-					'post_status'    => array( 'type' => 'keyword' ),
-					'title'          => array(
+					'post_type'       => array( 'type' => 'keyword' ),
+					'post_status'     => array( 'type' => 'keyword' ),
+					'title'           => array(
 						'type'            => 'text',
 						'analyzer'        => 'tnc_pt_br',
 						'search_analyzer' => 'tnc_pt_br_search',
@@ -76,30 +87,30 @@ final class Index_Manager {
 							'raw' => array( 'type' => 'keyword' ),
 						),
 					),
-					'description' => array(
+					'description'     => array(
 						'type'            => 'text',
 						'analyzer'        => 'tnc_pt_br',
 						'search_analyzer' => 'tnc_pt_br_search',
 					),
-					'content' => array(
+					'content'         => array(
 						'type'            => 'text',
 						'analyzer'        => 'tnc_pt_br',
 						'search_analyzer' => 'tnc_pt_br_search',
 					),
-					'author_id'   => array( 'type' => 'long' ),
-					'author_name' => array( 'type' => 'keyword' ),
-					'permalink'   => array( 'type' => 'keyword' ),
-					'thumbnail'   => array( 'type' => 'keyword' ),
-					'date_created' => array( 'type' => 'date' ),
-					'date_modified' => array( 'type' => 'date' ),
-					'taxonomies'  => array(
+					'author_id'       => array( 'type' => 'long' ),
+					'author_name'     => array( 'type' => 'keyword' ),
+					'permalink'       => array( 'type' => 'keyword' ),
+					'thumbnail'       => array( 'type' => 'keyword' ),
+					'date_created'    => array( 'type' => 'date' ),
+					'date_modified'   => array( 'type' => 'date' ),
+					'taxonomies'      => array(
 						'type'       => 'nested',
 						'properties' => array(
-							'slug'  => array( 'type' => 'keyword' ),
+							'slug'     => array( 'type' => 'keyword' ),
 							// Term IDs are what Tainacan's tax_query filters on;
 							// without them facet/filter translation is impossible.
 							'term_ids' => array( 'type' => 'long' ),
-							'terms' => array(
+							'terms'    => array(
 								'type'   => 'text',
 								'fields' => array(
 									'raw' => array( 'type' => 'keyword' ),
@@ -107,44 +118,64 @@ final class Index_Manager {
 							),
 						),
 					),
-					'metadata'    => array(
+					'metadata'        => array(
 						'type'       => 'nested',
 						'properties' => array(
-							'slug'  => array( 'type' => 'keyword' ),
+							'slug'          => array( 'type' => 'keyword' ),
 							// Tainacan's meta_query keys are metadatum IDs, not slugs.
-							'metadatum_id' => array( 'type' => 'long' ),
+							'metadatum_id'  => array( 'type' => 'long' ),
 							// Term/item IDs behind Taxonomy and Relationship metadata,
 							// used for facet aggregations and filter translation.
-							'value_ids'    => array( 'type' => 'long' ),
-							'label' => array( 'type' => 'keyword' ),
-							'value_text' => array(
+							'value_ids'     => array( 'type' => 'long' ),
+							'label'         => array( 'type' => 'keyword' ),
+							'value_text'    => array(
 								'type'            => 'text',
 								'analyzer'        => 'tnc_pt_br',
 								'search_analyzer' => 'tnc_pt_br_search',
 							),
 							'value_keyword' => array( 'type' => 'keyword' ),
 							'value_number'  => array( 'type' => 'double' ),
-							'value_date'    => array( 'type' => 'date', 'ignore_malformed' => true ),
+							'value_date'    => array(
+								'type'             => 'date',
+								'ignore_malformed' => true,
+							),
 						),
 					),
-					'identifier'  => array( 'type' => 'keyword' ),
+					'identifier'      => array( 'type' => 'keyword' ),
 				),
 			),
 		);
 	}
 
 	/**
+	 * Stemmer/stopword language the index is built with.
+	 *
+	 * Read from the stored option (not from a Settings instance) so the static
+	 * analyzer helpers used by the vocabulary installer see the same value.
+	 */
+	public static function analysis_language(): string {
+		$all  = Settings::all();
+		$lang = isset( $all['analysis_language'] ) ? (string) $all['analysis_language'] : 'brazilian';
+		return in_array( $lang, Settings::analysis_languages(), true ) ? $lang : 'brazilian';
+	}
+
+	/**
 	 * Token filters every index of this plugin defines.
+	 *
+	 * Filter names stay `brazilian_*` whatever the language, because the applied
+	 * vocabulary and the search analyzer reference them by name; only the
+	 * stemmer language and the stopword list follow the setting.
 	 */
 	public static function base_filters(): array {
+		$lang = self::analysis_language();
 		return array(
-			'brazilian_stop' => array(
+			'brazilian_stop'        => array(
 				'type'      => 'stop',
-				'stopwords' => '_brazilian_',
+				'stopwords' => '_' . $lang . '_',
 			),
-			'brazilian_stemmer' => array(
+			'brazilian_stemmer'     => array(
 				'type'     => 'stemmer',
-				'language' => 'brazilian',
+				'language' => $lang,
 			),
 			'asciifolding_preserve' => array(
 				'type'              => 'asciifolding',
@@ -173,13 +204,13 @@ final class Index_Manager {
 		$ping = $this->client->ping();
 		$auth = $this->client->describe_auth();
 		return array(
-			'ok'         => (bool) $ping['ok'],
-			'ms'         => (int) $ping['ms'],
-			'code'       => (int) $ping['code'],
-			'error'      => (string) ( $ping['error'] ?? '' ),
-			'url'        => $this->client->effective_base_url(),
-			'auth'       => $auth['method'],
-			'auth_user'  => $auth['user'],
+			'ok'        => (bool) $ping['ok'],
+			'ms'        => (int) $ping['ms'],
+			'code'      => (int) $ping['code'],
+			'error'     => (string) ( $ping['error'] ?? '' ),
+			'url'       => $this->client->effective_base_url(),
+			'auth'      => $auth['method'],
+			'auth_user' => $auth['user'],
 		);
 	}
 
