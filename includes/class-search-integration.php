@@ -329,7 +329,13 @@ final class Search_Integration {
 	 * Is ElasticPress loaded on this site?
 	 */
 	public static function elasticpress_active(): bool {
-		return defined( 'EP_VERSION' ) || class_exists( '\ElasticPress\Elasticsearch' );
+		static $active = null;
+		if ( null === $active ) {
+			// Resolved once per request: this runs for every WP_Query, and a
+			// class_exists() with autoload would call every registered autoloader each time.
+			$active = defined( 'EP_VERSION' ) || class_exists( '\ElasticPress\Elasticsearch', false );
+		}
+		return $active;
 	}
 
 	/**

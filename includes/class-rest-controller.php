@@ -535,7 +535,10 @@ final class REST_Controller {
 		return rest_ensure_response( array( 'ok' => true ) );
 	}
 
-	public function rest_reindex_all(): \WP_REST_Response {
+	public function rest_reindex_all() {
+		if ( ! $this->index_manager->client()->is_configured() ) {
+			return new \WP_Error( 'tim_es_not_configured', __( 'Configure o Elasticsearch antes de indexar.', 'tainacan-index-manager' ), array( 'status' => 409 ) );
+		}
 		$count = $this->indexer->enqueue_all();
 		return rest_ensure_response(
 			array(
@@ -545,7 +548,10 @@ final class REST_Controller {
 		);
 	}
 
-	public function rest_reindex_collection( \WP_REST_Request $req ): \WP_REST_Response {
+	public function rest_reindex_collection( \WP_REST_Request $req ) {
+		if ( ! $this->index_manager->client()->is_configured() ) {
+			return new \WP_Error( 'tim_es_not_configured', __( 'Configure o Elasticsearch antes de indexar.', 'tainacan-index-manager' ), array( 'status' => 409 ) );
+		}
 		$id    = (int) $req->get_param( 'collection_id' );
 		$count = $this->indexer->enqueue_collection( $id );
 		return rest_ensure_response(

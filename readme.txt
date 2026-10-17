@@ -4,7 +4,7 @@ Tags: tainacan, elasticsearch, opensearch, search, indexing, synonyms
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.4.0
+Stable tag: 1.4.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -49,6 +49,14 @@ Não. O vocabulário só muda o analisador de busca. O índice fica fechado por 
 A busca degrada automaticamente para SQL, o semáforo fica vermelho, um alerta é levantado e o evento é registrado nos logs.
 
 == Changelog ==
+
+= 1.4.1 =
+* **Corrige a validação de `es_url` da 1.4.0**, que apagava endereços em rede local ou com porta fora de 80/443/8080 (`http://127.0.0.1:9200`) ao salvar as configurações. Agora só exige http(s) e um host.
+* Credenciais vindas de constantes (`TIM_ES_*`) não são mais copiadas para o banco por um save ou pelo carimbo de hora da indexação.
+* "Indexar tudo" e "Reindexar coleção" recusam (409) sem Elasticsearch configurado, em vez de deixar o estado "processando" para sempre.
+* Trava de lote por `GET_LOCK` (atômica, sem TTL fixo que um lote grande pudesse ultrapassar); a fila é relida sob a trava.
+* Aplicar o vocabulário mantém o idioma do analisador com que o índice foi criado, mesmo que a configuração tenha mudado (mudar o idioma exige recriar o índice).
+* `is_routing()` considera o disjuntor aberto; detecção do ElasticPress resolvida uma vez por requisição; nome de índice padrão lido da opção `home` (não de `home_url()`, que plugins multilíngues filtram); opção de versão com autoload.
 
 = 1.4.0 =
 * **Carga no banco:** com o Elasticsearch não configurado (estado de uma instalação nova) o plugin não grava mais um registro de log e um transient a cada consulta do Tainacan; com o disjuntor aberto, listagens e facetas também deixam de gerar uma linha por consulta. O mesmo motivo de retorno ao SQL é anotado no máximo uma vez por minuto.
