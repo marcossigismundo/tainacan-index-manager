@@ -73,10 +73,13 @@ final class Collections_Monitor {
 
 		try {
 			$repo = call_user_func( array( '\\Tainacan\\Repositories\\Collections', 'get_instance' ) );
-			$cols = $repo->fetch( array(
-				'posts_per_page' => -1,
-				'post_status'    => array( 'publish', 'private' ),
-			), 'OBJECT' );
+			$cols = $repo->fetch(
+				array(
+					'posts_per_page' => -1,
+					'post_status'    => array( 'publish', 'private' ),
+				),
+				'OBJECT'
+			);
 
 			if ( ! is_array( $cols ) ) {
 				$cols = array();
@@ -101,21 +104,28 @@ final class Collections_Monitor {
 					// Don't issue an HTTP call per collection.
 					$indexed_count = 0;
 				} else {
-					$res = $this->client->count( $index, array(
-						'query' => array(
-							'bool' => array(
-								'must' => array(
-									array( 'term' => array( 'collection_id' => $collection_id ) ),
+					$res = $this->client->count(
+						$index,
+						array(
+							'query' => array(
+								'bool' => array(
+									'must' => array(
+										array( 'term' => array( 'collection_id' => $collection_id ) ),
+									),
 								),
 							),
-						),
-					) );
+						)
+					);
 					if ( is_wp_error( $res ) ) {
 						$indexed_error = $res->get_error_message();
-						$this->logger->warning( Logger::CHAN_HEALTH, 'Falha ao contar itens indexados da coleção.', array(
-							'collection_id' => $collection_id,
-							'error'         => $indexed_error,
-						) );
+						$this->logger->warning(
+							Logger::CHAN_HEALTH,
+							'Falha ao contar itens indexados da coleção.',
+							array(
+								'collection_id' => $collection_id,
+								'error'         => $indexed_error,
+							)
+						);
 					} else {
 						$indexed_count = (int) $res;
 					}
@@ -129,15 +139,15 @@ final class Collections_Monitor {
 				}
 
 				$rows[] = array(
-					'collection_id'  => $collection_id,
+					'collection_id'   => $collection_id,
 					'collection_name' => $name,
-					'post_type'      => $post_type,
-					'tainacan_count' => $tainacan_count,
-					'indexed_count'  => $indexed_count,
-					'coverage_pct'   => $coverage_pct,
-					'divergence_pct' => $divergence_pct,
-					'over_threshold' => ( null !== $divergence_pct && $divergence_pct > $threshold ),
-					'error'          => $indexed_error,
+					'post_type'       => $post_type,
+					'tainacan_count'  => $tainacan_count,
+					'indexed_count'   => $indexed_count,
+					'coverage_pct'    => $coverage_pct,
+					'divergence_pct'  => $divergence_pct,
+					'over_threshold'  => ( null !== $divergence_pct && $divergence_pct > $threshold ),
+					'error'           => $indexed_error,
 				);
 			}
 		} catch ( \Throwable $e ) {

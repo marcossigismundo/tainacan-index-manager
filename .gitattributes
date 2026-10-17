@@ -34,3 +34,10 @@
 /.git*          export-ignore
 /phpcs.xml.dist export-ignore
 /README.md      export-ignore
+/CLAUDE_CONTEXT.md export-ignore
+/composer.json  export-ignore
+/composer.lock  export-ignore
+/.github        export-ignore
+/tools          export-ignore
+/docs           export-ignore
+/tests          export-ignore

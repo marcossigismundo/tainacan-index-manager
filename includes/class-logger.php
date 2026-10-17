@@ -26,16 +26,16 @@ final class Logger {
 	public const LEVEL_ERROR    = 'error';
 	public const LEVEL_CRITICAL = 'critical';
 
-	public const CHAN_HEALTH      = 'health';
-	public const CHAN_INDEXER     = 'indexer';
-	public const CHAN_SEARCH      = 'search';
-	public const CHAN_FALLBACK    = 'fallback';
-	public const CHAN_ADMIN       = 'admin';
-	public const CHAN_REST        = 'rest';
-	public const CHAN_CRON        = 'cron';
-	public const CHAN_ELASTIC     = 'elastic';
-	public const CHAN_VOCABULARY  = 'vocabulary';
-	public const CHAN_ALERT       = 'alert';
+	public const CHAN_HEALTH     = 'health';
+	public const CHAN_INDEXER    = 'indexer';
+	public const CHAN_SEARCH     = 'search';
+	public const CHAN_FALLBACK   = 'fallback';
+	public const CHAN_ADMIN      = 'admin';
+	public const CHAN_REST       = 'rest';
+	public const CHAN_CRON       = 'cron';
+	public const CHAN_ELASTIC    = 'elastic';
+	public const CHAN_VOCABULARY = 'vocabulary';
+	public const CHAN_ALERT      = 'alert';
 
 	/**
 	 * Fully qualified log table name.
@@ -82,7 +82,7 @@ final class Logger {
 	public static function uninstall(): void {
 		global $wpdb;
 		$table = self::table();
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange -- Plugin uninstall; drops own table.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange,WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared,PluginCheck.Security.DirectDB.UnescapedDBParameter -- Plugin uninstall drops its own table; $table is $wpdb->prefix + constant, no user input.
 		$wpdb->query( "DROP TABLE IF EXISTS {$table}" );
 	}
 
@@ -177,7 +177,7 @@ final class Logger {
 		$params[] = $per_page;
 		$params[] = $offset;
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Plugin's own log table; $where_sql built from internal literals + %s placeholders; user values bound via prepare().
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber,PluginCheck.Security.DirectDB.UnescapedDBParameter -- Plugin's own log table, not reachable via WP_Query; $table is $wpdb->prefix + constant; $where_sql holds only internal literals whose %s placeholders are bound via prepare() with a variable-length $params.
 		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$table} WHERE {$where_sql} ORDER BY id DESC LIMIT %d OFFSET %d", $params ), ARRAY_A );
 
 		return is_array( $rows ) ? $rows : array();
@@ -216,11 +216,11 @@ final class Logger {
 		$table     = self::table();
 
 		if ( empty( $params ) ) {
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Plugin's own log table; aggregate COUNT with no user input.
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared,PluginCheck.Security.DirectDB.UnescapedDBParameter -- Aggregate COUNT over the plugin's own table, not expressible via WP_Query; no user input reaches the string ($where_sql is the literal '1=1').
 			return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE {$where_sql}" );
 		}
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Plugin's own log table; aggregate COUNT; $where_sql built from internal literals + %s placeholders.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare,PluginCheck.Security.DirectDB.UnescapedDBParameter -- Aggregate COUNT over the plugin's own table; $where_sql holds internal literals with %s placeholders bound via prepare().
 		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE {$where_sql}", $params ) );
 	}
 
@@ -231,7 +231,7 @@ final class Logger {
 		global $wpdb;
 		$cutoff = gmdate( 'Y-m-d H:i:s', strtotime( '-' . max( 1, $days ) . ' days' ) );
 		$table  = self::table();
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Plugin's own log table; delete by cutoff; user input via prepare placeholder.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared,PluginCheck.Security.DirectDB.UnescapedDBParameter -- Retention purge on the plugin's own table (write path, nothing to cache); $table is $wpdb->prefix + constant; cutoff bound via %s.
 		return (int) $wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE created_at < %s", $cutoff ) );
 	}
 
@@ -241,7 +241,7 @@ final class Logger {
 	public function truncate(): bool {
 		global $wpdb;
 		$table = self::table();
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange -- Plugin's own log table; explicit admin truncate action.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange,WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared,PluginCheck.Security.DirectDB.UnescapedDBParameter -- Explicit admin "clear logs" action on the plugin's own table; $table is $wpdb->prefix + constant, no user input.
 		return false !== $wpdb->query( "TRUNCATE TABLE {$table}" );
 	}
 

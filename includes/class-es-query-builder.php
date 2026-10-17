@@ -242,9 +242,9 @@ final class ES_Query_Builder {
 	private static function text_match( string $s, ?string $analyzer = null, bool $fuzzy = true ): array {
 		$mm = function ( array $fields ) use ( $s, $analyzer, $fuzzy ): array {
 			$match = array(
-				'query'    => $s,
-				'fields'   => $fields,
-				'operator' => 'and',
+				'query'                               => $s,
+				'fields'                              => $fields,
+				'operator'                            => 'and',
 				// A multi-word synonym ("rio de janeiro, rj") would otherwise become a
 				// phrase query. Stopwords leave position gaps in the index ("rio _
 				// janeiro"), so the phrase never matches and the expansion loses the
@@ -270,8 +270,20 @@ final class ES_Query_Builder {
 			'bool' => array(
 				'should'               => array(
 					$mm( array( 'title^3', 'description^2', 'content' ) ),
-					array( 'nested' => array( 'path' => 'metadata', 'score_mode' => 'max', 'query' => $mm( array( 'metadata.value_text' ) ) ) ),
-					array( 'nested' => array( 'path' => 'taxonomies', 'score_mode' => 'max', 'query' => $mm( array( 'taxonomies.terms' ) ) ) ),
+					array(
+						'nested' => array(
+							'path'       => 'metadata',
+							'score_mode' => 'max',
+							'query'      => $mm( array( 'metadata.value_text' ) ),
+						),
+					),
+					array(
+						'nested' => array(
+							'path'       => 'taxonomies',
+							'score_mode' => 'max',
+							'query'      => $mm( array( 'taxonomies.terms' ) ),
+						),
+					),
 				),
 				'minimum_should_match' => 1,
 			),
@@ -313,10 +325,17 @@ final class ES_Query_Builder {
 	 * finds "fotograf" (fotografia, fotográfico, fotógrafo, fotografias).
 	 */
 	private static function prefix_query( string $s ): array {
-		$words = preg_split( '/\s+/u', trim( $s ) );
-		$last  = self::fold_word( (string) array_pop( $words ) );
-		$pp    = function ( string $field ) use ( $last ): array {
-			return array( 'match_phrase_prefix' => array( $field => array( 'query' => $last, 'max_expansions' => 200 ) ) );
+		$words       = preg_split( '/\s+/u', trim( $s ) );
+		$last        = self::fold_word( (string) array_pop( $words ) );
+		$pp          = function ( string $field ) use ( $last ): array {
+			return array(
+				'match_phrase_prefix' => array(
+					$field => array(
+						'query'          => $last,
+						'max_expansions' => 200,
+					),
+				),
+			);
 		};
 		$last_clause = array(
 			'bool' => array(
@@ -324,8 +343,18 @@ final class ES_Query_Builder {
 					$pp( 'title' ),
 					$pp( 'description' ),
 					$pp( 'content' ),
-					array( 'nested' => array( 'path' => 'metadata', 'query' => $pp( 'metadata.value_text' ) ) ),
-					array( 'nested' => array( 'path' => 'taxonomies', 'query' => $pp( 'taxonomies.terms' ) ) ),
+					array(
+						'nested' => array(
+							'path'  => 'metadata',
+							'query' => $pp( 'metadata.value_text' ),
+						),
+					),
+					array(
+						'nested' => array(
+							'path'  => 'taxonomies',
+							'query' => $pp( 'taxonomies.terms' ),
+						),
+					),
 				),
 				'minimum_should_match' => 1,
 			),
@@ -500,7 +529,12 @@ final class ES_Query_Builder {
 		}
 
 		return 'OR' === $relation
-			? array( 'bool' => array( 'should' => $clauses, 'minimum_should_match' => 1 ) )
+			? array(
+				'bool' => array(
+					'should'               => $clauses,
+					'minimum_should_match' => 1,
+				),
+			)
 			: array( 'bool' => array( 'filter' => $clauses ) );
 	}
 
@@ -674,7 +708,12 @@ final class ES_Query_Builder {
 		}
 
 		return 'OR' === $relation
-			? array( 'bool' => array( 'should' => $clauses, 'minimum_should_match' => 1 ) )
+			? array(
+				'bool' => array(
+					'should'               => $clauses,
+					'minimum_should_match' => 1,
+				),
+			)
 			: array( 'bool' => array( 'filter' => $clauses ) );
 	}
 

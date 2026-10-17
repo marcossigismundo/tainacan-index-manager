@@ -70,39 +70,64 @@ final class Settings {
 	 */
 	public static function defaults(): array {
 		return array(
-			'engine'                    => self::ENGINE_ELASTICSEARCH,
-			'es_url'                    => '',
-			'es_username'               => '',
-			'es_password'               => '',
-			'es_api_key'                => '',
-			'es_timeout'                => 5,
+			'engine'                   => self::ENGINE_ELASTICSEARCH,
+			'es_url'                   => '',
+			'es_username'              => '',
+			'es_password'              => '',
+			'es_api_key'               => '',
+			'es_timeout'               => 5,
 			// Visitor-facing queries (list, facets): short, with a circuit breaker. See Elasticsearch_Client::search_live().
-			'search_timeout'            => 1.5,
-			'index_name'                => 'tainacan_items',
-			'batch_size'                => 50,
-			'batch_interval_seconds'    => 1,
-			'auto_indexing_enabled'     => false,
-			'auto_check_frequency'      => 'hourly',
-			'divergence_threshold_pct'  => 5,
-			'max_retries'               => 3,
-			'alert_email_enabled'       => false,
-			'alert_email_address'       => '',
-			'alert_dashboard_enabled'   => true,
-			'fallback_enabled'          => true,
-			'route_item_lists'          => true,
-			'route_facets'              => true,
-			'facet_max_terms'           => 300,
-			'log_retention_days'        => 30,
+			'search_timeout'           => 1.5,
+			'index_name'               => self::default_index_name(),
+			// Stemmer/stopword language of the index analyzers (Elasticsearch language names).
+			'analysis_language'        => 'brazilian',
+			'batch_size'               => 50,
+			'auto_indexing_enabled'    => false,
+			'auto_check_frequency'     => 'hourly',
+			'divergence_threshold_pct' => 5,
+			'max_retries'              => 3,
+			'alert_email_enabled'      => false,
+			'alert_email_address'      => '',
+			'alert_dashboard_enabled'  => true,
+			'route_item_lists'         => true,
+			'route_facets'             => true,
+			'facet_max_terms'          => 300,
+			'log_retention_days'       => 30,
 			// Where the panel lives in Tainacan's admin sidebar: under "Outros"
 			// (the default, alongside the other maintenance tools) or in the root menu.
-			'menu_location'             => 'other',
+			'menu_location'            => 'other',
 			// Accept one or two wrong letters in free-text search (ES fuzziness AUTO).
-			'search_typo_tolerance'     => false,
+			'search_typo_tolerance'    => false,
 			// Complete the last word when it was typed incomplete ("fotogr" → fotografia).
-			'search_prefix'             => true,
-			'last_index_run_ts'         => 0,
-			'last_health_check_ts'      => 0,
+			'search_prefix'            => true,
+			'last_index_run_ts'        => 0,
+			'last_health_check_ts'     => 0,
 		);
+	}
+
+	/**
+	 * Index name a fresh installation gets.
+	 *
+	 * Derived from the site URL so two WordPress sites pointed at the same
+	 * (shared) Elasticsearch never write to — or delete — each other's index
+	 * just because both kept the default. Existing installations keep whatever
+	 * name is stored.
+	 */
+	public static function default_index_name(): string {
+		$home = function_exists( 'home_url' ) ? (string) home_url() : '';
+		if ( '' === $home ) {
+			return 'tainacan_items';
+		}
+		return 'tnc_' . substr( md5( $home ), 0, 8 ) . '_items';
+	}
+
+	/**
+	 * Stemmer languages the index may be created with (Elasticsearch names).
+	 *
+	 * @return string[]
+	 */
+	public static function analysis_languages(): array {
+		return array( 'brazilian', 'portuguese', 'english', 'spanish', 'french', 'italian', 'german', 'galician', 'catalan' );
 	}
 
 	/**
@@ -116,13 +141,68 @@ final class Settings {
 
 	/**
 	 * Return all settings merged with defaults.
+	 *
+	 * Secrets may be supplied by `wp-config.php` constants instead of the
+	 * database: `TIM_ES_PASSWORD` and `TIM_ES_API_KEY` (and optionally
+	 * `TIM_ES_URL`, `TIM_ES_USERNAME`) take precedence over the stored option,
+	 * so the credential never has to live in `wp_options` at all.
 	 */
 	public static function all(): array {
 		$stored = get_option( self::OPTION_KEY, array() );
 		if ( ! is_array( $stored ) ) {
 			$stored = array();
 		}
-		return array_merge( self::defaults(), $stored );
+		$all = array_merge( self::defaults(), $stored );
+
+		foreach ( self::constant_overrides() as $key => $constant ) {
+			if ( defined( $constant ) && is_string( constant( $constant ) ) && '' !== constant( $constant ) ) {
+				$all[ $key ] = constant( $constant );
+			}
+		}
+
+		return $all;
+	}
+
+	/**
+	 * Setting key => wp-config constant that overrides it.
+	 *
+	 * @return array<string,string>
+	 */
+	public static function constant_overrides(): array {
+		return array(
+			'es_url'      => 'TIM_ES_URL',
+			'es_username' => 'TIM_ES_USERNAME',
+			'es_password' => 'TIM_ES_PASSWORD',
+			'es_api_key'  => 'TIM_ES_API_KEY',
+		);
+	}
+
+	/**
+	 * Whether a setting is currently forced by a wp-config constant.
+	 */
+	public static function is_overridden( string $key ): bool {
+		$map = self::constant_overrides();
+		return isset( $map[ $key ] ) && defined( $map[ $key ] ) && '' !== (string) constant( $map[ $key ] );
+	}
+
+	/**
+	 * Everything another plugin needs to talk to the same Elasticsearch index.
+	 *
+	 * This is the supported way for sibling plugins to reuse the connection;
+	 * reading the option directly bypasses the constant overrides above and
+	 * breaks whenever the storage format changes.
+	 *
+	 * @return array{url:string,username:string,password:string,api_key:string,index_name:string,mapping_version:int}
+	 */
+	public function connection(): array {
+		return array(
+			'url'             => (string) $this->get( 'es_url', '' ),
+			'username'        => (string) $this->get( 'es_username', '' ),
+			'password'        => (string) $this->get( 'es_password', '' ),
+			'api_key'         => (string) $this->get( 'es_api_key', '' ),
+			'index_name'      => (string) $this->get( 'index_name', '' ),
+			'mapping_version' => Index_Manager::MAPPING_VERSION,
+		);
 	}
 
 	/**
@@ -206,7 +286,10 @@ final class Settings {
 				return self::normalize_engine( $v );
 
 			case 'es_url':
-				return esc_url_raw( is_string( $v ) ? trim( $v ) : '' );
+				$v = esc_url_raw( is_string( $v ) ? trim( $v ) : '', array( 'http', 'https' ) );
+				// Only absolute http(s) URLs reach wp_remote_*; anything else would
+				// make the client knock on a scheme/host the admin did not mean.
+				return ( '' !== $v && wp_http_validate_url( $v ) ) || '' === $v ? $v : '';
 
 			case 'es_username':
 			case 'es_password':
@@ -215,8 +298,12 @@ final class Settings {
 				return is_string( $v ) ? sanitize_text_field( $v ) : '';
 
 			case 'index_name':
-				$v = is_string( $v ) ? strtolower( preg_replace( '/[^a-z0-9_\-]/i', '', $v ) ) : 'tainacan_items';
-				return '' !== $v ? $v : 'tainacan_items';
+				$v = is_string( $v ) ? strtolower( preg_replace( '/[^a-z0-9_\-]/i', '', $v ) ) : '';
+				return '' !== $v ? $v : self::default_index_name();
+
+			case 'analysis_language':
+				$v = is_string( $v ) ? strtolower( trim( $v ) ) : '';
+				return in_array( $v, self::analysis_languages(), true ) ? $v : 'brazilian';
 
 			case 'es_timeout':
 				return max( 1, min( 60, (int) $v ) );
@@ -226,9 +313,6 @@ final class Settings {
 
 			case 'batch_size':
 				return max( 1, min( 1000, (int) $v ) );
-
-			case 'batch_interval_seconds':
-				return max( 0, min( 600, (int) $v ) );
 
 			case 'divergence_threshold_pct':
 				return max( 0, min( 100, (int) $v ) );
@@ -252,13 +336,14 @@ final class Settings {
 			case 'auto_indexing_enabled':
 			case 'alert_email_enabled':
 			case 'alert_dashboard_enabled':
-			case 'fallback_enabled':
 			case 'route_item_lists':
 			case 'route_facets':
 				return (bool) $v;
 
 			case 'facet_max_terms':
-				return max( 10, min( 5000, (int) $v ) );
+				// Each bucket carries a reverse_nested sub-aggregation; past ~1,000
+				// distinct values the aggregation costs more than the SQL it replaces.
+				return max( 10, min( 1000, (int) $v ) );
 
 			case 'last_index_run_ts':
 			case 'last_health_check_ts':
@@ -282,6 +367,13 @@ final class Settings {
 		foreach ( array( 'es_password', 'es_api_key' ) as $secret ) {
 			$all[ $secret ] = ! empty( $all[ $secret ] ) ? '__set__' : '';
 		}
+		$all['overridden_by_constant'] = array_values(
+			array_filter(
+				array_keys( self::constant_overrides() ),
+				array( __CLASS__, 'is_overridden' )
+			)
+		);
+		$all['analysis_languages']     = self::analysis_languages();
 		return $all;
 	}
 }

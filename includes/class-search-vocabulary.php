@@ -92,8 +92,8 @@ final class Search_Vocabulary {
 	 * Whole stored state: draft lists plus the last applied compilation.
 	 */
 	public static function state(): array {
-		$stored = get_option( self::OPTION, array() );
-		$state  = array_merge( self::defaults(), is_array( $stored ) ? $stored : array() );
+		$stored         = get_option( self::OPTION, array() );
+		$state          = array_merge( self::defaults(), is_array( $stored ) ? $stored : array() );
 		$state['lists'] = array_merge( array_fill_keys( self::LISTS, '' ), is_array( $state['lists'] ) ? $state['lists'] : array() );
 		return $state;
 	}
@@ -250,38 +250,48 @@ final class Search_Vocabulary {
 					++$dupes;
 					continue;
 				}
-				$seen[ $sig ]  = true;
-				$rule['list']  = $key;
-				$rule['line']  = $line_no;
-				$rules[]       = $rule;
+				$seen[ $sig ] = true;
+				$rule['list'] = $key;
+				$rule['line'] = $line_no;
+				$rules[]      = $rule;
 				++$counts[ $key ];
 			}
 		}
 
 		if ( count( $rules ) > self::MAX_RULES ) {
-			$errors[] = self::issue( '', 0, '', sprintf(
+			$errors[] = self::issue(
+				'',
+				0,
+				'',
+				sprintf(
 				/* translators: %1$s = regras, %2$s = limite */
-				__( 'São %1$s regras; o limite é %2$s. Divida o vocabulário ou remova regras pouco usadas.', 'tainacan-index-manager' ),
-				number_format_i18n( count( $rules ) ),
-				number_format_i18n( self::MAX_RULES )
-			) );
+					__( 'São %1$s regras; o limite é %2$s. Divida o vocabulário ou remova regras pouco usadas.', 'tainacan-index-manager' ),
+					number_format_i18n( count( $rules ) ),
+					number_format_i18n( self::MAX_RULES )
+				)
+			);
 		}
 		if ( count( $stopwords ) > self::MAX_STOPWORDS ) {
-			$errors[] = self::issue( 'stopwords', 0, '', sprintf(
+			$errors[] = self::issue(
+				'stopwords',
+				0,
+				'',
+				sprintf(
 				/* translators: %s = limite */
-				__( 'A lista de palavras ignoradas passou do limite de %s palavras.', 'tainacan-index-manager' ),
-				number_format_i18n( self::MAX_STOPWORDS )
-			) );
+					__( 'A lista de palavras ignoradas passou do limite de %s palavras.', 'tainacan-index-manager' ),
+					number_format_i18n( self::MAX_STOPWORDS )
+				)
+			);
 		}
 
 		return array(
 			'rules'     => $rules,
 			'stopwords' => array_keys( $stopwords ),
 			'report'    => array(
-				'ok'         => empty( $errors ),
-				'counts'     => $counts,
-				'duplicates' => $dupes,
-				'errors'     => array_slice( $errors, 0, 200 ),
+				'ok'           => empty( $errors ),
+				'counts'       => $counts,
+				'duplicates'   => $dupes,
+				'errors'       => array_slice( $errors, 0, 200 ),
 				'errors_total' => count( $errors ),
 			),
 		);
@@ -317,7 +327,11 @@ final class Search_Vocabulary {
 			if ( ! array_diff( $right, $left ) && ! array_diff( $left, $right ) ) {
 				return __( 'Os dois lados da seta são iguais — a regra não mudaria nada.', 'tainacan-index-manager' );
 			}
-			return array( 'type' => 'map', 'left' => $left, 'right' => $right );
+			return array(
+				'type'  => 'map',
+				'left'  => $left,
+				'right' => $right,
+			);
 		}
 
 		if ( 'corrections' === $key ) {
@@ -331,7 +345,11 @@ final class Search_Vocabulary {
 		if ( count( $terms ) < 2 ) {
 			return __( 'Uma equivalência precisa de pelo menos dois termos separados por vírgula. Ex.: quadro, pintura, tela', 'tainacan-index-manager' );
 		}
-		return array( 'type' => 'equiv', 'left' => $terms, 'right' => array() );
+		return array(
+			'type'  => 'equiv',
+			'left'  => $terms,
+			'right' => array(),
+		);
 	}
 
 	/**
@@ -414,7 +432,7 @@ final class Search_Vocabulary {
 				'stopwords'   => $stopwords,
 				'ignore_case' => true,
 			);
-			$chain[] = self::FILTER_STOP;
+			$chain[]                      = self::FILTER_STOP;
 		}
 
 		$chain[] = 'brazilian_stemmer';
@@ -428,7 +446,7 @@ final class Search_Vocabulary {
 				// the time this reaches the live index every rule has been accepted.
 				'lenient'  => ! $strict,
 			);
-			$chain[] = self::FILTER_SYNONYMS;
+			$chain[]                          = self::FILTER_SYNONYMS;
 		}
 
 		return array(
@@ -457,11 +475,11 @@ final class Search_Vocabulary {
 	 *  5. confirm the index is back and the analyzer is the new one.
 	 */
 	public function apply(): array {
-		$started = time();
-		$t0      = microtime( true );
-		$steps   = array();
+		$started   = time();
+		$t0        = microtime( true );
+		$steps     = array();
 		self::$lap = $t0;
-		$notes   = array();
+		$notes     = array();
 
 		if ( false !== get_transient( self::LOCK ) ) {
 			return $this->result( false, $steps, __( 'Já existe uma aplicação do vocabulário em andamento. Aguarde alguns segundos e atualize a página.', 'tainacan-index-manager' ) );
@@ -473,7 +491,8 @@ final class Search_Vocabulary {
 		// A synonym map of ~1,600 rules already takes several seconds per step.
 		ignore_user_abort( true );
 		if ( function_exists( 'set_time_limit' ) ) {
-			@set_time_limit( 0 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			// phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged,WordPress.PHP.NoSilencedErrors.Discouraged -- Admin-only (manage_options) action guarded by a 600 s lock: the index is closed between steps and a PHP time limit here would leave it closed; 300 s bounds the worst case instead of 0. Silenced because some hosts disable the function.
+			@set_time_limit( 300 );
 		}
 
 		try {
@@ -482,19 +501,27 @@ final class Search_Vocabulary {
 
 			/* 1. Validate */
 			if ( ! $parsed['report']['ok'] ) {
-				$steps[] = self::step( 'validate', 'fail', sprintf(
+				$steps[] = self::step(
+					'validate',
+					'fail',
+					sprintf(
 					/* translators: %d = erros */
-					_n( '%d linha precisa de correção.', '%d linhas precisam de correção.', $parsed['report']['errors_total'], 'tainacan-index-manager' ),
-					$parsed['report']['errors_total']
-				) );
+						_n( '%d linha precisa de correção.', '%d linhas precisam de correção.', $parsed['report']['errors_total'], 'tainacan-index-manager' ),
+						$parsed['report']['errors_total']
+					)
+				);
 				return $this->result( false, $steps, __( 'Corrija as linhas marcadas antes de aplicar. Nada foi enviado ao Elasticsearch.', 'tainacan-index-manager' ), $parsed['report'] );
 			}
-			$steps[] = self::step( 'validate', 'ok', sprintf(
+			$steps[] = self::step(
+				'validate',
+				'ok',
+				sprintf(
 				/* translators: %1$d regras, %2$d palavras ignoradas */
-				__( '%1$d regras e %2$d palavras ignoradas, sem erros.', 'tainacan-index-manager' ),
-				count( $parsed['rules'] ),
-				count( $parsed['stopwords'] )
-			) );
+					__( '%1$d regras e %2$d palavras ignoradas, sem erros.', 'tainacan-index-manager' ),
+					count( $parsed['rules'] ),
+					count( $parsed['stopwords'] )
+				)
+			);
 
 			if ( ! $this->client->is_configured() ) {
 				$steps[] = self::step( 'connect', 'fail', __( 'Elasticsearch não configurado.', 'tainacan-index-manager' ) );
@@ -527,13 +554,17 @@ final class Search_Vocabulary {
 				'notes'       => array_slice( $notes, 0, 100 ),
 				'notes_total' => count( $notes ),
 			);
-			$steps[] = self::step( 'normalize', 'ok', empty( $notes )
+			$steps[]  = self::step(
+				'normalize',
+				'ok',
+				empty( $notes )
 				? __( 'Todos os termos passaram pelo analisador sem ajustes.', 'tainacan-index-manager' )
 				: sprintf(
 					/* translators: %d = ajustes */
 					_n( '%d termo foi ajustado (veja as observações abaixo).', '%d termos foram ajustados (veja as observações abaixo).', count( $notes ), 'tainacan-index-manager' ),
 					count( $notes )
-				) );
+				)
+			);
 
 			/* 3. Rehearsal, strict */
 			$rehearsal = $this->rehearse( $probe_index, $applied );
@@ -548,11 +579,15 @@ final class Search_Vocabulary {
 
 			/* 4. Real index */
 			if ( ! $exists ) {
-				$steps[] = self::step( 'install', 'skip', sprintf(
+				$steps[] = self::step(
+					'install',
+					'skip',
+					sprintf(
 					/* translators: %s = índice */
-					__( 'O índice "%s" ainda não existe; ele já será criado com este vocabulário.', 'tainacan-index-manager' ),
-					$index
-				) );
+						__( 'O índice "%s" ainda não existe; ele já será criado com este vocabulário.', 'tainacan-index-manager' ),
+						$index
+					)
+				);
 				$this->store_applied( $applied, $index );
 				return $this->result( true, $steps, __( 'Vocabulário salvo. Ele entra em vigor quando o índice for criado.', 'tainacan-index-manager' ) );
 			}
@@ -566,19 +601,27 @@ final class Search_Vocabulary {
 			Search_Integration::forget_fallback_since( $started );
 			delete_transient( 'tainacan_idxmgr_health_snapshot' );
 
-			$this->logger->info( Logger::CHAN_VOCABULARY, 'Vocabulário da busca aplicado.', array(
-				'index'     => $index,
-				'rules'     => count( $compiled ),
-				'stopwords' => count( $parsed['stopwords'] ),
-				'notes'     => count( $notes ),
-				'ms'        => (int) round( ( microtime( true ) - $t0 ) * 1000 ),
-			) );
+			$this->logger->info(
+				Logger::CHAN_VOCABULARY,
+				'Vocabulário da busca aplicado.',
+				array(
+					'index'     => $index,
+					'rules'     => count( $compiled ),
+					'stopwords' => count( $parsed['stopwords'] ),
+					'notes'     => count( $notes ),
+					'ms'        => (int) round( ( microtime( true ) - $t0 ) * 1000 ),
+				)
+			);
 
-			return $this->result( true, $steps, sprintf(
+			return $this->result(
+				true,
+				$steps,
+				sprintf(
 				/* translators: %s = segundos */
-				__( 'Vocabulário aplicado em %s s. A busca já está usando as novas regras — não é preciso reindexar.', 'tainacan-index-manager' ),
-				number_format_i18n( microtime( true ) - $t0, 1 )
-			) );
+					__( 'Vocabulário aplicado em %s s. A busca já está usando as novas regras — não é preciso reindexar.', 'tainacan-index-manager' ),
+					number_format_i18n( microtime( true ) - $t0, 1 )
+				)
+			);
 		} catch ( \Throwable $e ) {
 			$this->logger->error( Logger::CHAN_VOCABULARY, 'Falha inesperada ao aplicar o vocabulário.', array( 'error' => $e->getMessage() ) );
 			$steps[] = self::step( 'error', 'fail', $e->getMessage() );
@@ -603,18 +646,25 @@ final class Search_Vocabulary {
 		}
 		$steps[] = self::step( 'close', 'ok', __( 'Índice fechado. Durante estes segundos a busca responde pelo banco (SQL).', 'tainacan-index-manager' ) );
 
-		$written = $this->client->put_index_settings( $index, array(
-			'index' => array(
-				'analysis' => array(
-					'filter'   => array_merge( Index_Manager::base_filters(), $analysis['filter'] ),
-					'analyzer' => $analysis['analyzer'],
+		$written  = $this->client->put_index_settings(
+			$index,
+			array(
+				'index' => array(
+					'analysis' => array(
+						'filter'   => array_merge( Index_Manager::base_filters(), $analysis['filter'] ),
+						'analyzer' => $analysis['analyzer'],
+					),
 				),
-			),
-		) );
+			)
+		);
 		$write_ok = ! is_wp_error( $written );
-		$steps[]  = self::step( 'write', $write_ok ? 'ok' : 'fail', $write_ok
+		$steps[]  = self::step(
+			'write',
+			$write_ok ? 'ok' : 'fail',
+			$write_ok
 			? __( 'Analisador de busca atualizado.', 'tainacan-index-manager' )
-			: $written->get_error_message() );
+			: $written->get_error_message()
+		);
 
 		$opened = $this->client->open_index( $index );
 		if ( is_wp_error( $opened ) ) {
@@ -622,27 +672,39 @@ final class Search_Vocabulary {
 			$opened = $this->client->open_index( $index );
 		}
 		if ( is_wp_error( $opened ) ) {
-			$this->logger->critical( Logger::CHAN_VOCABULARY, 'O índice não reabriu depois de aplicar o vocabulário.', array(
-				'index' => $index,
-				'error' => $opened->get_error_message(),
-			) );
-			$steps[] = self::step( 'open', 'fail', sprintf(
+			$this->logger->critical(
+				Logger::CHAN_VOCABULARY,
+				'O índice não reabriu depois de aplicar o vocabulário.',
+				array(
+					'index' => $index,
+					'error' => $opened->get_error_message(),
+				)
+			);
+			$steps[] = self::step(
+				'open',
+				'fail',
+				sprintf(
 				/* translators: %s = erro */
-				__( 'O índice não reabriu: %s. A busca segue pelo SQL até ele ser reaberto (POST /<índice>/_open).', 'tainacan-index-manager' ),
-				$opened->get_error_message()
-			) );
+					__( 'O índice não reabriu: %s. A busca segue pelo SQL até ele ser reaberto (POST /<índice>/_open).', 'tainacan-index-manager' ),
+					$opened->get_error_message()
+				)
+			);
 			return false;
 		}
 
-		$health = $this->client->wait_for_index( $index, 'yellow', 30 );
-		$ready  = is_array( $health ) && empty( $health['tim_tolerated'] ) && empty( $health['timed_out'] );
-		$steps[] = self::step( 'open', $ready ? 'ok' : 'fail', $ready
+		$health  = $this->client->wait_for_index( $index, 'yellow', 30 );
+		$ready   = is_array( $health ) && empty( $health['tim_tolerated'] ) && empty( $health['timed_out'] );
+		$steps[] = self::step(
+			'open',
+			$ready ? 'ok' : 'fail',
+			$ready
 			? sprintf(
 				/* translators: %s = segundos */
 				__( 'Índice reaberto e respondendo. Ficou fechado por %s s.', 'tainacan-index-manager' ),
 				number_format_i18n( microtime( true ) - $closed_at, 1 )
 			)
-			: __( 'Índice reaberto, mas ainda não ficou pronto em 30 s. Acompanhe o semáforo.', 'tainacan-index-manager' ) );
+			: __( 'Índice reaberto, mas ainda não ficou pronto em 30 s. Acompanhe o semáforo.', 'tainacan-index-manager' )
+		);
 
 		if ( ! $write_ok || ! $ready ) {
 			return false;
@@ -653,9 +715,13 @@ final class Search_Vocabulary {
 		$chain    = is_array( $settings ) ? ( $settings[ $index ]['settings']['index']['analysis']['analyzer']['tnc_pt_br_search']['filter'] ?? null ) : null;
 		$expected = $analysis['analyzer']['tnc_pt_br_search']['filter'];
 		$matches  = is_array( $chain ) && array_values( $chain ) === $expected;
-		$steps[]  = self::step( 'verify', $matches ? 'ok' : 'fail', $matches
+		$steps[]  = self::step(
+			'verify',
+			$matches ? 'ok' : 'fail',
+			$matches
 			? __( 'Conferido: o índice está usando o novo analisador.', 'tainacan-index-manager' )
-			: __( 'O analisador lido de volta não é o que foi enviado.', 'tainacan-index-manager' ) );
+			: __( 'O analisador lido de volta não é o que foi enviado.', 'tainacan-index-manager' )
+		);
 
 		return $matches;
 	}
@@ -693,37 +759,51 @@ final class Search_Vocabulary {
 		$filters = Index_Manager::base_filters();
 		$chain   = array( 'lowercase', 'asciifolding', 'brazilian_stop' );
 		if ( ! empty( $stopwords ) ) {
-			$filters[ self::FILTER_STOP ] = array( 'type' => 'stop', 'stopwords' => $stopwords, 'ignore_case' => true );
+			$filters[ self::FILTER_STOP ] = array(
+				'type'        => 'stop',
+				'stopwords'   => $stopwords,
+				'ignore_case' => true,
+			);
 			$chain[]                      = self::FILTER_STOP;
 		}
 
-		$created = $this->client->create_index( $probe_index, array(
-			'settings' => array(
-				'number_of_shards'   => 1,
-				'number_of_replicas' => 0,
-				'analysis'           => array(
-					'filter'   => $filters,
-					'analyzer' => array(
-						self::PROBE_ANALYZER => array( 'tokenizer' => 'standard', 'filter' => $chain ),
+		$created = $this->client->create_index(
+			$probe_index,
+			array(
+				'settings' => array(
+					'number_of_shards'   => 1,
+					'number_of_replicas' => 0,
+					'analysis'           => array(
+						'filter'   => $filters,
+						'analyzer' => array(
+							self::PROBE_ANALYZER => array(
+								'tokenizer' => 'standard',
+								'filter'    => $chain,
+							),
+						),
 					),
 				),
 			),
-		), Elasticsearch_Client::ANALYSIS_TIMEOUT );
+			Elasticsearch_Client::ANALYSIS_TIMEOUT
+		);
 		if ( is_wp_error( $created ) ) {
 			return $created;
 		}
 
 		$map = array();
 		foreach ( array_chunk( $terms, self::PROBE_CHUNK ) as $chunk ) {
-			$res = $this->client->analyze( $probe_index, array(
-				'analyzer' => self::PROBE_ANALYZER,
-				'text'     => implode( ' ' . self::SEPARATOR . ' ', $chunk ),
-			) );
+			$res = $this->client->analyze(
+				$probe_index,
+				array(
+					'analyzer' => self::PROBE_ANALYZER,
+					'text'     => implode( ' ' . self::SEPARATOR . ' ', $chunk ),
+				)
+			);
 			if ( is_wp_error( $res ) ) {
 				return $res;
 			}
 
-			$groups  = array( array() );
+			$groups = array( array() );
 			foreach ( (array) ( $res['tokens'] ?? array() ) as $tok ) {
 				if ( self::SEPARATOR === ( $tok['token'] ?? '' ) ) {
 					$groups[] = array();
@@ -756,21 +836,27 @@ final class Search_Vocabulary {
 			foreach ( $terms as $term ) {
 				$norm = $normalized[ $term ] ?? $term;
 				if ( '' === $norm ) {
-					$notes[] = self::note( $rule, sprintf(
+					$notes[] = self::note(
+						$rule,
+						sprintf(
 						/* translators: %s = termo */
-						__( '"%s" só tem palavras ignoradas pela busca (como "de", "da", "o") e foi deixado de fora da regra.', 'tainacan-index-manager' ),
-						$term
-					) );
+							__( '"%s" só tem palavras ignoradas pela busca (como "de", "da", "o") e foi deixado de fora da regra.', 'tainacan-index-manager' ),
+							$term
+						)
+					);
 					continue;
 				}
 				// Case and accents are expected to change; only report dropped words.
 				if ( substr_count( $norm, ' ' ) < substr_count( $term, ' ' ) ) {
-					$notes[] = self::note( $rule, sprintf(
+					$notes[] = self::note(
+						$rule,
+						sprintf(
 						/* translators: %1$s = termo original, %2$s = termo gravado */
-						__( '"%1$s" foi gravado como "%2$s": palavras como "de" e "da" não entram nas regras, mas a busca por "%1$s" continua encontrando a regra.', 'tainacan-index-manager' ),
-						$term,
-						$norm
-					) );
+							__( '"%1$s" foi gravado como "%2$s": palavras como "de" e "da" não entram nas regras, mas a busca por "%1$s" continua encontrando a regra.', 'tainacan-index-manager' ),
+							$term,
+							$norm
+						)
+					);
 				}
 				$kept[] = $norm;
 			}
@@ -816,16 +902,20 @@ final class Search_Vocabulary {
 		$this->drop_index_quietly( $probe_index );
 
 		$analysis = self::search_analysis( $applied, true );
-		$created  = $this->client->create_index( $probe_index, array(
-			'settings' => array(
-				'number_of_shards'   => 1,
-				'number_of_replicas' => 0,
-				'analysis'           => array(
-					'filter'   => array_merge( Index_Manager::base_filters(), $analysis['filter'] ),
-					'analyzer' => $analysis['analyzer'],
+		$created  = $this->client->create_index(
+			$probe_index,
+			array(
+				'settings' => array(
+					'number_of_shards'   => 1,
+					'number_of_replicas' => 0,
+					'analysis'           => array(
+						'filter'   => array_merge( Index_Manager::base_filters(), $analysis['filter'] ),
+						'analyzer' => $analysis['analyzer'],
+					),
 				),
 			),
-		), Elasticsearch_Client::ANALYSIS_TIMEOUT );
+			Elasticsearch_Client::ANALYSIS_TIMEOUT
+		);
 		if ( is_wp_error( $created ) ) {
 			return $created;
 		}
@@ -833,7 +923,13 @@ final class Search_Vocabulary {
 		$samples = array();
 		foreach ( array_slice( (array) ( $applied['rules'] ?? array() ), 0, 4 ) as $rule ) {
 			$first = trim( (string) preg_split( '/,|=>/', $rule )[0] );
-			$res   = $this->client->analyze( $probe_index, array( 'analyzer' => 'tnc_pt_br_search', 'text' => $first ) );
+			$res   = $this->client->analyze(
+				$probe_index,
+				array(
+					'analyzer' => 'tnc_pt_br_search',
+					'text'     => $first,
+				)
+			);
 			if ( is_array( $res ) ) {
 				$samples[] = array(
 					'text'  => $first,
@@ -866,7 +962,7 @@ final class Search_Vocabulary {
 		$now       = microtime( true );
 		$ms        = self::$lap > 0 ? (int) round( ( $now - self::$lap ) * 1000 ) : 0;
 		self::$lap = $now;
-		$labels = array(
+		$labels    = array(
 			'validate'  => __( 'Conferir as listas', 'tainacan-index-manager' ),
 			'connect'   => __( 'Conectar ao Elasticsearch', 'tainacan-index-manager' ),
 			'normalize' => __( 'Passar os termos pelo analisador', 'tainacan-index-manager' ),
@@ -912,21 +1008,39 @@ final class Search_Vocabulary {
 		$text  = trim( wp_strip_all_tags( $text ) );
 		$index = (string) $this->settings->get( 'index_name' );
 		if ( '' === $text ) {
-			return array( 'ok' => false, 'message' => __( 'Digite uma palavra ou expressão.', 'tainacan-index-manager' ) );
+			return array(
+				'ok'      => false,
+				'message' => __( 'Digite uma palavra ou expressão.', 'tainacan-index-manager' ),
+			);
 		}
 		if ( true !== $this->client->index_exists( $index ) ) {
-			return array( 'ok' => false, 'message' => __( 'O índice ainda não existe — crie-o em Configurações.', 'tainacan-index-manager' ) );
+			return array(
+				'ok'      => false,
+				'message' => __( 'O índice ainda não existe — crie-o em Configurações.', 'tainacan-index-manager' ),
+			);
 		}
 
-		$with = $this->client->analyze( $index, array( 'analyzer' => 'tnc_pt_br_search', 'text' => $text ) );
+		$with = $this->client->analyze(
+			$index,
+			array(
+				'analyzer' => 'tnc_pt_br_search',
+				'text'     => $text,
+			)
+		);
 		if ( is_wp_error( $with ) ) {
-			return array( 'ok' => false, 'message' => $with->get_error_message() );
+			return array(
+				'ok'      => false,
+				'message' => $with->get_error_message(),
+			);
 		}
-		$without = $this->client->analyze( $index, array(
-			'tokenizer' => 'standard',
-			'filter'    => array( 'lowercase', 'asciifolding', 'brazilian_stop', 'brazilian_stemmer' ),
-			'text'      => $text,
-		) );
+		$without = $this->client->analyze(
+			$index,
+			array(
+				'tokenizer' => 'standard',
+				'filter'    => array( 'lowercase', 'asciifolding', 'brazilian_stop', 'brazilian_stemmer' ),
+				'text'      => $text,
+			)
+		);
 
 		return array(
 			'ok'            => true,
@@ -945,16 +1059,19 @@ final class Search_Vocabulary {
 		// Same clause the site's search uses. With the analyzer forced to the
 		// index-time one (no vocabulary), the start-of-word completion is off too,
 		// so "sem" really is the search without anything this page adds.
-		$res = $this->client->count( $index, array(
-			'query' => array(
-				'bool' => array(
-					'must'   => array(
-						ES_Query_Builder::text_query( $text, $analyzer, null === $analyzer ),
+		$res = $this->client->count(
+			$index,
+			array(
+				'query' => array(
+					'bool' => array(
+						'must'   => array(
+							ES_Query_Builder::text_query( $text, $analyzer, null === $analyzer ),
+						),
+						'filter' => array( array( 'term' => array( 'post_status' => 'publish' ) ) ),
 					),
-					'filter' => array( array( 'term' => array( 'post_status' => 'publish' ) ) ),
 				),
-			),
-		) );
+			)
+		);
 		return is_wp_error( $res ) ? null : (int) $res;
 	}
 
@@ -967,12 +1084,17 @@ final class Search_Vocabulary {
 	private static function group_tokens( array $res ): array {
 		$by_pos = array();
 		foreach ( (array) ( $res['tokens'] ?? array() ) as $tok ) {
-			$pos = (int) ( $tok['position'] ?? 0 );
+			$pos              = (int) ( $tok['position'] ?? 0 );
 			$by_pos[ $pos ][] = (string) ( $tok['token'] ?? '' );
 		}
 		ksort( $by_pos );
-		return array_values( array_map( static function ( $forms ) {
-			return array_values( array_unique( $forms ) );
-		}, $by_pos ) );
+		return array_values(
+			array_map(
+				static function ( $forms ) {
+					return array_values( array_unique( $forms ) );
+				},
+				$by_pos
+			)
+		);
 	}
 }

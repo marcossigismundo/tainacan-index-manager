@@ -47,9 +47,9 @@ final class Admin_Page {
 		if ( $this->tainacan_pages_available() ) {
 			// Tainacan 1.0.0+ — load native page classes. They self-register via Singleton_Instance.
 			try {
-				require_once TAINACAN_INDEX_MANAGER_DIR . 'includes/tainacan-pages/class-dashboard-page.php';
-				require_once TAINACAN_INDEX_MANAGER_DIR . 'includes/tainacan-pages/class-vocabulary-page.php';
-				require_once TAINACAN_INDEX_MANAGER_DIR . 'includes/tainacan-pages/class-settings-page.php';
+				require_once TAINACAN_INDEX_MANAGER_DIR . 'includes/tainacan-pages/class-tim-dashboard-page.php';
+				require_once TAINACAN_INDEX_MANAGER_DIR . 'includes/tainacan-pages/class-tim-vocabulary-page.php';
+				require_once TAINACAN_INDEX_MANAGER_DIR . 'includes/tainacan-pages/class-tim-settings-page.php';
 				return;
 			} catch ( \Throwable $e ) {
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
@@ -105,15 +105,15 @@ final class Admin_Page {
 	 */
 	public static function js_config( string $view ): array {
 		return array(
-			'restRoot'   => esc_url_raw( rest_url( REST_Controller::NAMESPACE ) ),
-			'restNonce'  => wp_create_nonce( 'wp_rest' ),
-			'pluginUrl'  => esc_url_raw( TAINACAN_INDEX_MANAGER_URL ),
-			'view'       => $view,
-			'dashUrl'    => esc_url_raw( admin_url( 'admin.php?page=' . self::DASHBOARD_SLUG ) ),
-			'vocabularyUrl' => esc_url_raw( admin_url( 'admin.php?page=' . self::VOCABULARY_SLUG ) ),
-			'settingsUrl' => esc_url_raw( admin_url( 'admin.php?page=' . self::SETTINGS_SLUG ) ),
+			'restRoot'           => esc_url_raw( rest_url( REST_Controller::NAMESPACE ) ),
+			'restNonce'          => wp_create_nonce( 'wp_rest' ),
+			'pluginUrl'          => esc_url_raw( TAINACAN_INDEX_MANAGER_URL ),
+			'view'               => $view,
+			'dashUrl'            => esc_url_raw( admin_url( 'admin.php?page=' . self::DASHBOARD_SLUG ) ),
+			'vocabularyUrl'      => esc_url_raw( admin_url( 'admin.php?page=' . self::VOCABULARY_SLUG ) ),
+			'settingsUrl'        => esc_url_raw( admin_url( 'admin.php?page=' . self::SETTINGS_SLUG ) ),
 			'tainacanIntegrated' => class_exists( '\\Tainacan\\Pages' ),
-			'i18n'       => self::i18n_strings(),
+			'i18n'               => self::i18n_strings(),
 		);
 	}
 
@@ -245,7 +245,7 @@ final class Admin_Page {
 
 	public function enqueue_fallback_assets( string $hook ): void {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only admin page-slug check; no state mutation.
-		$page = isset( $_GET['page'] ) ? sanitize_text_field( wp_unslash( $_GET['page'] ) ) : '';
+		$page  = isset( $_GET['page'] ) ? sanitize_text_field( wp_unslash( $_GET['page'] ) ) : '';
 		$views = array(
 			self::DASHBOARD_SLUG  => 'dashboard',
 			self::VOCABULARY_SLUG => 'vocabulary',
@@ -277,58 +277,58 @@ final class Admin_Page {
 	 */
 	private static function i18n_strings(): array {
 		return array(
-			'dashboard'          => __( 'Gestão da Indexação', 'tainacan-index-manager' ),
-			'vocabulary'         => __( 'Vocabulário da busca', 'tainacan-index-manager' ),
-			'settings'           => __( 'Configurações de Indexação', 'tainacan-index-manager' ),
-			'logs'               => __( 'Logs', 'tainacan-index-manager' ),
-			'alerts'             => __( 'Alertas', 'tainacan-index-manager' ),
-			'metrics'            => __( 'Métricas da Indexação', 'tainacan-index-manager' ),
-			'overview'           => __( 'Visão geral', 'tainacan-index-manager' ),
-			'cluster'            => __( 'Cluster', 'tainacan-index-manager' ),
-			'index'              => __( 'Índice', 'tainacan-index-manager' ),
-			'coverage'           => __( 'Cobertura', 'tainacan-index-manager' ),
-			'divergence'         => __( 'Divergência', 'tainacan-index-manager' ),
-			'collections'        => __( 'Coleções', 'tainacan-index-manager' ),
-			'response_time'      => __( 'Tempo de resposta', 'tainacan-index-manager' ),
-			'tainacan_total'     => __( 'Itens no Tainacan', 'tainacan-index-manager' ),
-			'indexed_total'      => __( 'Documentos indexados', 'tainacan-index-manager' ),
-			'last_check'         => __( 'Última verificação', 'tainacan-index-manager' ),
-			'last_index'         => __( 'Última indexação', 'tainacan-index-manager' ),
-			'effective_engine'   => __( 'Mecanismo ativo', 'tainacan-index-manager' ),
+			'dashboard'            => __( 'Gestão da Indexação', 'tainacan-index-manager' ),
+			'vocabulary'           => __( 'Vocabulário da busca', 'tainacan-index-manager' ),
+			'settings'             => __( 'Configurações de Indexação', 'tainacan-index-manager' ),
+			'logs'                 => __( 'Logs', 'tainacan-index-manager' ),
+			'alerts'               => __( 'Alertas', 'tainacan-index-manager' ),
+			'metrics'              => __( 'Métricas da Indexação', 'tainacan-index-manager' ),
+			'overview'             => __( 'Visão geral', 'tainacan-index-manager' ),
+			'cluster'              => __( 'Cluster', 'tainacan-index-manager' ),
+			'index'                => __( 'Índice', 'tainacan-index-manager' ),
+			'coverage'             => __( 'Cobertura', 'tainacan-index-manager' ),
+			'divergence'           => __( 'Divergência', 'tainacan-index-manager' ),
+			'collections'          => __( 'Coleções', 'tainacan-index-manager' ),
+			'response_time'        => __( 'Tempo de resposta', 'tainacan-index-manager' ),
+			'tainacan_total'       => __( 'Itens no Tainacan', 'tainacan-index-manager' ),
+			'indexed_total'        => __( 'Documentos indexados', 'tainacan-index-manager' ),
+			'last_check'           => __( 'Última verificação', 'tainacan-index-manager' ),
+			'last_index'           => __( 'Última indexação', 'tainacan-index-manager' ),
+			'effective_engine'     => __( 'Mecanismo ativo', 'tainacan-index-manager' ),
 			'engine_elasticsearch' => __( 'Elasticsearch', 'tainacan-index-manager' ),
 			'engine_sql'           => __( 'SQL', 'tainacan-index-manager' ),
-			'refresh'            => __( 'Atualizar', 'tainacan-index-manager' ),
-			'test_connection'    => __( 'Testar conexão', 'tainacan-index-manager' ),
-			'create_index'       => __( 'Criar índice', 'tainacan-index-manager' ),
-			'delete_index'       => __( 'Apagar índice', 'tainacan-index-manager' ),
-			'recreate_index'     => __( 'Recriar índice', 'tainacan-index-manager' ),
-			'reindex_all'        => __( 'Indexar tudo', 'tainacan-index-manager' ),
-			'reindex_pending'    => __( 'Indexar pendentes', 'tainacan-index-manager' ),
-			'reindex_collection' => __( 'Indexar coleção', 'tainacan-index-manager' ),
-			'process_batch'      => __( 'Processar lote', 'tainacan-index-manager' ),
-			'pause'              => __( 'Pausar', 'tainacan-index-manager' ),
-			'resume'             => __( 'Retomar', 'tainacan-index-manager' ),
-			'cancel'             => __( 'Cancelar', 'tainacan-index-manager' ),
-			'save'               => __( 'Salvar', 'tainacan-index-manager' ),
-			'clear_logs'         => __( 'Limpar logs', 'tainacan-index-manager' ),
-			'export_logs'        => __( 'Exportar logs', 'tainacan-index-manager' ),
-			'clear_alerts'       => __( 'Limpar alertas', 'tainacan-index-manager' ),
-			'connection_ok'      => __( 'Conexão OK', 'tainacan-index-manager' ),
-			'connection_failed'  => __( 'Falha na conexão', 'tainacan-index-manager' ),
-			'never'              => __( 'Nunca', 'tainacan-index-manager' ),
-			'throughput'         => __( 'Itens/segundo', 'tainacan-index-manager' ),
-			'eta'                => __( 'Tempo restante estimado', 'tainacan-index-manager' ),
-			'success_rate'       => __( 'Taxa de sucesso', 'tainacan-index-manager' ),
-			'avg_batch_ms'       => __( 'Lote médio (ms)', 'tainacan-index-manager' ),
-			'avg_batch_size'     => __( 'Tamanho médio do lote', 'tainacan-index-manager' ),
-			'queue_size'         => __( 'Tamanho da fila', 'tainacan-index-manager' ),
-			'queue_peak'         => __( 'Pico da fila', 'tainacan-index-manager' ),
-			'lifetime_indexed'   => __( 'Total indexado', 'tainacan-index-manager' ),
-			'lifetime_failed'    => __( 'Total falhas', 'tainacan-index-manager' ),
-			'lifetime_batches'   => __( 'Total de lotes', 'tainacan-index-manager' ),
-			'history'            => __( 'Histórico de execuções', 'tainacan-index-manager' ),
-			'failure_top'        => __( 'Itens com mais falhas', 'tainacan-index-manager' ),
-			'reset_metrics'      => __( 'Zerar métricas', 'tainacan-index-manager' ),
+			'refresh'              => __( 'Atualizar', 'tainacan-index-manager' ),
+			'test_connection'      => __( 'Testar conexão', 'tainacan-index-manager' ),
+			'create_index'         => __( 'Criar índice', 'tainacan-index-manager' ),
+			'delete_index'         => __( 'Apagar índice', 'tainacan-index-manager' ),
+			'recreate_index'       => __( 'Recriar índice', 'tainacan-index-manager' ),
+			'reindex_all'          => __( 'Indexar tudo', 'tainacan-index-manager' ),
+			'reindex_pending'      => __( 'Indexar pendentes', 'tainacan-index-manager' ),
+			'reindex_collection'   => __( 'Indexar coleção', 'tainacan-index-manager' ),
+			'process_batch'        => __( 'Processar lote', 'tainacan-index-manager' ),
+			'pause'                => __( 'Pausar', 'tainacan-index-manager' ),
+			'resume'               => __( 'Retomar', 'tainacan-index-manager' ),
+			'cancel'               => __( 'Cancelar', 'tainacan-index-manager' ),
+			'save'                 => __( 'Salvar', 'tainacan-index-manager' ),
+			'clear_logs'           => __( 'Limpar logs', 'tainacan-index-manager' ),
+			'export_logs'          => __( 'Exportar logs', 'tainacan-index-manager' ),
+			'clear_alerts'         => __( 'Limpar alertas', 'tainacan-index-manager' ),
+			'connection_ok'        => __( 'Conexão OK', 'tainacan-index-manager' ),
+			'connection_failed'    => __( 'Falha na conexão', 'tainacan-index-manager' ),
+			'never'                => __( 'Nunca', 'tainacan-index-manager' ),
+			'throughput'           => __( 'Itens/segundo', 'tainacan-index-manager' ),
+			'eta'                  => __( 'Tempo restante estimado', 'tainacan-index-manager' ),
+			'success_rate'         => __( 'Taxa de sucesso', 'tainacan-index-manager' ),
+			'avg_batch_ms'         => __( 'Lote médio (ms)', 'tainacan-index-manager' ),
+			'avg_batch_size'       => __( 'Tamanho médio do lote', 'tainacan-index-manager' ),
+			'queue_size'           => __( 'Tamanho da fila', 'tainacan-index-manager' ),
+			'queue_peak'           => __( 'Pico da fila', 'tainacan-index-manager' ),
+			'lifetime_indexed'     => __( 'Total indexado', 'tainacan-index-manager' ),
+			'lifetime_failed'      => __( 'Total falhas', 'tainacan-index-manager' ),
+			'lifetime_batches'     => __( 'Total de lotes', 'tainacan-index-manager' ),
+			'history'              => __( 'Histórico de execuções', 'tainacan-index-manager' ),
+			'failure_top'          => __( 'Itens com mais falhas', 'tainacan-index-manager' ),
+			'reset_metrics'        => __( 'Zerar métricas', 'tainacan-index-manager' ),
 		);
 	}
 }

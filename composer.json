@@ -1,0 +1,25 @@
+{
+    "name": "marcossigismundo/tainacan-index-manager",
+    "description": "Indexes Tainacan in Elasticsearch/OpenSearch and routes listings, facets and search through the index.",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "php": ">=7.4"
+    },
+    "require-dev": {
+        "wp-coding-standards/wpcs": "^3.0",
+        "phpcompatibility/phpcompatibility-wp": "^2.1",
+        "phpcsstandards/phpcsextra": "^1.2",
+        "dealerdirect/phpcodesniffer-composer-installer": "^1.0"
+    },
+    "scripts": {
+        "lint": "vendor/bin/phpcs --standard=phpcs.xml.dist",
+        "lint:fix": "vendor/bin/phpcbf --standard=phpcs.xml.dist",
+        "syntax": "find . -name '*.php' -not -path './vendor/*' -not -path './tools/*' -print0 | xargs -0 -n1 php -l"
+    },
+    "config": {
+        "allow-plugins": {
+            "dealerdirect/phpcodesniffer-composer-installer": true
+        }
+    }
+}
