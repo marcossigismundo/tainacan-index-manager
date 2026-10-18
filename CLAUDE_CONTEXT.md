@@ -320,3 +320,20 @@ Como verificar no ar (feito no `acervo-mhn` da VPS, Tainacan 1.4.0 + Blocksy + E
 ## 1.4.1: correções da segunda revisão (17/10/2026, noite)
 
 Revisão adversarial do diff 1.3.3→1.4.0 (modelo mais forte, só leitura) achou: (1) **crítico** — `wp_http_validate_url()` em `es_url` rejeita loopback/rede privada e portas fora de 80/443/8080, então `http://127.0.0.1:9200` (a VPS) era apagado no primeiro "Salvar"; trocado por validação própria (http(s) + host). (2) **alto** — `Settings::update()` lia `all()` com as constantes aplicadas e regravava tudo: a senha de `TIM_ES_PASSWORD` acabava no `wp_options` a cada `mark_timestamp()`; agora o update parte da option crua e pula chaves sobrepostas. (3) trava de lote em transient/`wp_cache_add` com TTL 120 s menor que um `_bulk` de até 240 s → `GET_LOCK('tim_batch_…')`, fila relida sob a trava. (4) `reindex-all/collection` sem ES deixavam estado RUNNING eterno → 409. (5) `analysis_language` mudava os filtros `brazilian_*` que o analisador de **indexação** usa, e "Aplicar vocabulário" reescrevia o índice vivo com outro stemmer → `Search_Vocabulary::idioma_do_indice()` lê `_settings` do índice e `Index_Manager::base_filters($lang)` recebe o idioma do índice. Também: `is_routing()` considera `live_breaker_open()`; `elasticpress_active()` com `static`; `default_index_name()` lê `get_option('home')`; `tainacan_idxmgr_db_version` com autoload. Confirmado pela revisão: instalação nova sem ES não faz **nenhuma** escrita por requisição.
+
+## Rodada 3 (18/10/2026) — versão 1.4.3
+
+Revisão com critérios ampliados (carga em produção com milhares de acessos, segurança, PHP 7.4, convivência) +
+medições no acervo-mhn. O que mudou nesta versão está no changelog do readme.txt; o raciocínio de cada correção está
+nos comentários do código. Pontos para quem mantém:
+
+- Limitador por IP: baldes IPv6 /64; a constante comum `TAINACAN_TRUSTED_PROXIES` (IPs/CIDRs, wp-config.php) diz
+  quais proxies com IP público têm o `X-Forwarded-For` confiável — sem ela, atrás de Cloudflare/WAF todos os
+  visitantes caem num balde só. Atrás de proxy, declarar no wp-config de produção.
+- Sem cache de objetos persistente, transients ficam em `wp_options`; os plugins agora só gravam o que precisa
+  (limite só em cache miss, faxina de vencidos onde a chave vem de input do visitante). Em produção grande,
+  Redis/Memcached continua recomendado.
+- Lint: phpcs com o `phpcs.xml.dist` do próprio plugin (`vendor/bin/phpcs --standard=phpcs.xml.dist .`) é o que o
+  CI roda; `php7.4 -l` em todos os arquivos antes de publicar (o `match` do item-print passou por três revisões).
+- DÍVIDA: `WordPress-Docs` está comentado no `phpcs.xml.dist` (centenas de docblocks ausentes herdados). Reativar quando documentar; os demais rulesets seguem ativos.
+- Relatório consolidado da rodada: `C:\tmp\plugins-review\ESTRATEGIA-REVISAO.md`, seção 9.
