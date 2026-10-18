@@ -126,7 +126,7 @@ final class Search_Vocabulary {
 		$empty   = '' === trim( implode( '', $state['lists'] ) );
 
 		return array(
-			'pending'         => empty( $applied ) ? ! $empty : ( $hash !== ( $applied['source_hash'] ?? '' ) ),
+			'pending'         => empty( $applied ) ? ! $empty : ( ( $applied['source_hash'] ?? '' ) !== $hash ),
 			'applied_at'      => (int) ( $applied['at'] ?? 0 ),
 			'applied_index'   => (string) ( $applied['index'] ?? '' ),
 			'rules_count'     => count( (array) ( $applied['rules'] ?? array() ) ),
@@ -362,7 +362,7 @@ final class Search_Vocabulary {
 			if ( '' === $term ) {
 				continue;
 			}
-			if ( mb_strlen( $term ) > self::MAX_TERM_CHARS ) {
+			if ( ( function_exists( 'mb_strlen' ) ? mb_strlen( $term ) : strlen( $term ) ) > self::MAX_TERM_CHARS ) {
 				return sprintf(
 					/* translators: %d = limite de caracteres */
 					__( 'Termo com mais de %d caracteres. Sinônimos são palavras ou expressões curtas, não frases.', 'tainacan-index-manager' ),
@@ -381,14 +381,14 @@ final class Search_Vocabulary {
 		$term = wp_strip_all_tags( $term );
 		$term = preg_replace( '/[^\p{L}\p{N}\s\'\-\.&]/u', ' ', $term );
 		$term = preg_replace( '/\s+/u', ' ', (string) $term );
-		return trim( mb_strtolower( (string) $term ) );
+		return trim( function_exists( 'mb_strtolower' ) ? mb_strtolower( (string) $term ) : strtolower( (string) $term ) );
 	}
 
-	private static function issue( string $list, int $line, string $text, string $message ): array {
+	private static function issue( string $list_name, int $line, string $text, string $message ): array {
 		return array(
-			'list'    => $list,
+			'list'    => $list_name,
 			'line'    => $line,
-			'text'    => mb_substr( trim( $text ), 0, 160 ),
+			'text'    => function_exists( 'mb_substr' ) ? mb_substr( trim( $text ), 0, 160 ) : substr( trim( $text ), 0, 160 ),
 			'message' => $message,
 		);
 	}

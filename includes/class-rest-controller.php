@@ -579,7 +579,7 @@ final class REST_Controller {
 	 * @param \WP_REST_Request $request Request.
 	 */
 	public function rest_purge_orphans( $request ): \WP_REST_Response {
-		$batch = (int) ( $request->get_param( 'batch' ) ?: 1000 );
+		$batch = (int) $request->get_param( 'batch' ) > 0 ? (int) $request->get_param( 'batch' ) : 1000;
 		$res   = $this->indexer->purge_orphans( $batch );
 		return rest_ensure_response( $res );
 	}
@@ -631,8 +631,8 @@ final class REST_Controller {
 
 	public function rest_get_logs( \WP_REST_Request $req ): \WP_REST_Response {
 		$args  = array(
-			'page'     => max( 1, (int) $req->get_param( 'page' ) ?: 1 ),
-			'per_page' => max( 1, min( 200, (int) $req->get_param( 'per_page' ) ?: 50 ) ),
+			'page'     => max( 1, (int) $req->get_param( 'page' ) ),
+			'per_page' => max( 1, min( 200, (int) $req->get_param( 'per_page' ) > 0 ? (int) $req->get_param( 'per_page' ) : 50 ) ),
 			'level'    => (string) $req->get_param( 'level' ),
 			'channel'  => (string) $req->get_param( 'channel' ),
 		);

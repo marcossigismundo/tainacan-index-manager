@@ -98,7 +98,7 @@ final class Collections_Monitor {
 				$indexed_count = null;
 				$indexed_error = '';
 				if ( ! $es_ok ) {
-					// no-op: column stays "—"
+					$indexed_count = null; // Cluster unreachable: the column stays "—".
 				} elseif ( ! $index_exists ) {
 					// Index hasn't been created yet — nothing indexed by definition.
 					// Don't issue an HTTP call per collection.

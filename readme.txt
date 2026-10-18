@@ -4,7 +4,7 @@ Tags: tainacan, elasticsearch, opensearch, search, indexing, synonyms
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.4.1
+Stable tag: 1.4.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -34,6 +34,10 @@ Recursos:
 4. Clique em **Testar conexão** e depois em **Criar índice**.
 5. Use **Indexar tudo** para popular o índice e acompanhe pelo semáforo em **Tainacan > Outros > Gestão da Indexação**.
 
+== External services ==
+
+This plugin sends data to the Elasticsearch (or OpenSearch) server that the site administrator configures in its settings (URL, credentials): item titles, descriptions, metadata values, taxonomy terms, statuses and IDs are indexed there, and visitor searches and facet counts are answered from it. No data is sent anywhere else, and nothing is sent until an administrator configures a server. The server is operated by the site owner (or a provider they choose); its privacy terms are theirs.
+
 == Frequently Asked Questions ==
 
 = O plugin funciona com Elasticsearch e OpenSearch? =
@@ -50,6 +54,13 @@ A busca degrada automaticamente para SQL, o semáforo fica vermelho, um alerta �
 
 == Changelog ==
 
+
+= 1.4.2 =
+* Security: an explicit non-public `post_status` (private, draft, pending) is only answered by the index for users who may read private items of those post types; other requests fall back to SQL, which applies the author-scoped rule. `perm` is now passed to the query builder. Anonymous `?status=private` no longer lists private items when routing is on.
+* Load: the indexing queue moved from a single serialized option to the plugin's own table (`{prefix}tnc_idxmgr_queue`, INSERT IGNORE per save, row-level dequeue); the old option is migrated on upgrade. Importing thousands of items no longer rewrites a growing option on every save.
+* Load: ticks skip while the visitor breaker is open or for 5 minutes after a failed _bulk; the breaker also opens on index_closed/cluster_block/index_not_found; 4xx log lines are throttled to one per (code, type) per minute; synchronous document deletes are skipped while the breaker is open.
+* Load: settings option autoloaded (no extra SELECT per request); live-breaker option no longer autoloaded (avoids the alloptions rewrite race); search probe cached only with a persistent object cache; pending totals reset per routed query (memory leak in long processes); post caches primed only when posts are requested; collection lookup skipped for non-item post types.
+* Fix: health-check frequency change reschedules the event; mbstring calls guarded; silent catches log under WP_DEBUG; readme declares the Elasticsearch server as an external service.
 = 1.4.1 =
 * **Corrige a validação de `es_url` da 1.4.0**, que apagava endereços em rede local ou com porta fora de 80/443/8080 (`http://127.0.0.1:9200`) ao salvar as configurações. Agora só exige http(s) e um host.
 * Credenciais vindas de constantes (`TIM_ES_*`) não são mais copiadas para o banco por um save ou pelo carimbo de hora da indexação.

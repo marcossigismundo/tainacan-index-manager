@@ -56,6 +56,7 @@ final class Indexer {
 	 * @param \WP_Post $post    Post object.
 	 * @param bool     $update  Whether existing or new.
 	 */
+	// phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- save_post signature; new and updated items are enqueued alike.
 	public function on_save_post( $post_id, $post, $update ): void {
 		if ( wp_is_post_revision( $post_id ) || wp_is_post_autosave( $post_id ) ) {
 			return;
@@ -95,6 +96,12 @@ final class Indexer {
 		if ( ! $this->client->is_configured() ) {
 			return;
 		}
+		// Synchronous HTTP in the editor's request: with the cluster down each
+		// permanently deleted item would hold the worker for es_timeout seconds.
+		// purge_orphans() reconciles the index later.
+		if ( $this->client->live_breaker_open() ) {
+			return;
+		}
 		$index = (string) $this->settings->get( 'index_name' );
 		$res   = $this->client->delete_document( $index, (string) $post_id );
 		if ( is_wp_error( $res ) ) {
@@ -115,24 +122,13 @@ final class Indexer {
 	 * @param int[] $ids Item IDs.
 	 */
 	public function enqueue( array $ids ): int {
-		$ids = array_map( 'absint', $ids );
-		$ids = array_filter( $ids );
+		global $wpdb;
+		$ids = array_values( array_unique( array_filter( array_map( 'absint', $ids ) ) ) );
 		if ( empty( $ids ) ) {
 			return 0;
 		}
-
-		$before = 0;
-		$queue  = $this->mutate_queue(
-			static function ( array $current ) use ( $ids, &$before ): array {
-				$before = count( $current );
-				if ( $before >= self::QUEUE_HARD_CAP ) {
-					return $current;
-				}
-				return array_merge( $current, $ids );
-			}
-		);
-		$added  = count( $queue ) - $before;
-		if ( 0 === $added && $before >= self::QUEUE_HARD_CAP ) {
+		$size = $this->queue_size();
+		if ( $size >= self::QUEUE_HARD_CAP ) {
 			$this->logger->error(
 				Logger::CHAN_INDEXER,
 				'Fila de indexação cheia; itens não enfileirados.',
@@ -141,93 +137,159 @@ final class Indexer {
 					'count' => count( $ids ),
 				)
 			);
+			return 0;
 		}
 
-		$this->metrics->observe_queue_size( count( $queue ) );
+		// The queue is the plugin's own table (see install_queue_table()): one
+		// INSERT IGNORE per chunk, O(1) per item, no lock, duplicates dropped by
+		// the primary key. It used to be a single serialized option rewritten
+		// whole on every save_post — importing 40,000 items meant ~80,000
+		// rewrites of an option that grew to ~560 KB (O(n²) bytes), under a
+		// GET_LOCK the cron drain was fighting for.
+		$table = self::queue_table();
+		$now   = current_time( 'mysql', true );
+		$added = 0;
+		foreach ( array_chunk( $ids, 500 ) as $chunk ) {
+			$values = array();
+			$args   = array();
+			foreach ( $chunk as $id ) {
+				$values[] = '(%d, %s)';
+				$args[]   = (int) $id;
+				$args[]   = $now;
+			}
+			// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared,PluginCheck.Security.DirectDB.UnescapedDBParameter,WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- Plugin's own queue table (not a post type, not available via WP_Query); $wpdb->prefix is trusted; the VALUES list is a list of (%d, %s) placeholders matching the chunk, which the sniff cannot count; every value goes through prepare(); write path, nothing to cache.
+			$result = $wpdb->query( $wpdb->prepare( "INSERT IGNORE INTO {$table} (item_id, enqueued_at) VALUES " . implode( ',', $values ), $args ) );
+			// phpcs:enable
+			if ( false !== $result ) {
+				$added += (int) $result;
+			}
+		}
+
+		$this->metrics->observe_queue_size( $size + $added );
 		return $added;
 	}
 
 	/**
-	 * Apply a change to the queue as one atomic read-modify-write.
+	 * Remove IDs from the queue (processed, or cancelled).
 	 *
-	 * The queue is a single option shared by every PHP process: the cron draining
-	 * it and whatever is saving items (a harvest, an import) at the same time.
-	 * Writing back a copy read earlier silently drops every ID another process
-	 * enqueued in between — those items then never reach the index. So the change
-	 * is applied to a copy read fresh from the database, under a named lock.
-	 *
-	 * @param callable $change Receives the current queue (int[]) and returns the new one.
-	 * @return int[] The queue as written.
+	 * @param int[] $ids Item IDs.
 	 */
-	private function mutate_queue( callable $change ): array {
+	private function dequeue( array $ids ): void {
 		global $wpdb;
-
-		// GET_LOCK names are server-wide, and the database server is shared by
-		// many sites: the name has to be unique to this site's options table.
-		$lock = 'tim_queue_' . md5( DB_NAME . '|' . $wpdb->options );
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- advisory lock, nothing to cache.
-		$locked = '1' === (string) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $lock, 10 ) );
-
-		// This process may hold a copy of the option (or of its absence) cached
-		// from before another process changed it; drop both so the read below,
-		// and update_option()'s own "did it change?" check, see the database.
-		wp_cache_delete( self::QUEUE_OPTION, 'options' );
-		$notoptions = wp_cache_get( 'notoptions', 'options' );
-		if ( is_array( $notoptions ) && isset( $notoptions[ self::QUEUE_OPTION ] ) ) {
-			unset( $notoptions[ self::QUEUE_OPTION ] );
-			wp_cache_set( 'notoptions', $notoptions, 'options' );
+		$ids = array_values( array_unique( array_filter( array_map( 'absint', $ids ) ) ) );
+		if ( empty( $ids ) ) {
+			return;
 		}
-
-		$queue = array_values( array_unique( array_map( 'intval', (array) $change( $this->load_queue() ) ) ) );
-		update_option( self::QUEUE_OPTION, $queue, false );
-
-		if ( $locked ) {
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- advisory lock, nothing to cache.
-			$wpdb->query( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock ) );
+		$table = self::queue_table();
+		foreach ( array_chunk( $ids, 1000 ) as $chunk ) {
+			$in = implode( ',', array_fill( 0, count( $chunk ), '%d' ) );
+			// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare,PluginCheck.Security.DirectDB.UnescapedDBParameter -- Plugin's own queue table; IN-clause built with array_fill of %d placeholders matching $chunk count (the sniff cannot count them); write path.
+			$wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE item_id IN ({$in})", $chunk ) );
+			// phpcs:enable
 		}
-
-		return $queue;
 	}
 
 	/**
-	 * Replace the entire queue with all Tainacan items (full reindex bootstrap).
+	 * The next IDs to index, oldest enqueue first (a re-queued failure gets a
+	 * new timestamp and goes to the back instead of blocking the head).
+	 *
+	 * @param int $limit Batch size.
+	 * @return int[]
+	 */
+	private function next_batch( int $limit ): array {
+		global $wpdb;
+		$table = self::queue_table();
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared,PluginCheck.Security.DirectDB.UnescapedDBParameter -- Plugin's own queue table; the head changes with every batch, so caching would return stale IDs; LIMIT via %d.
+		$ids = $wpdb->get_col( $wpdb->prepare( "SELECT item_id FROM {$table} ORDER BY enqueued_at ASC, item_id ASC LIMIT %d", max( 1, $limit ) ) );
+		// phpcs:enable
+		return array_map( 'intval', (array) $ids );
+	}
+
+	/**
+	 * Name of the queue table (`{prefix}tnc_idxmgr_queue`).
+	 */
+	public static function queue_table(): string {
+		global $wpdb;
+		return $wpdb->prefix . 'tnc_idxmgr_queue';
+	}
+
+	/**
+	 * Create or upgrade the queue table (activation and version upgrade).
+	 */
+	public static function install_queue_table(): void {
+		global $wpdb;
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		$table   = self::queue_table();
+		$charset = $wpdb->get_charset_collate();
+		$sql     = "CREATE TABLE {$table} (
+			item_id BIGINT(20) UNSIGNED NOT NULL,
+			enqueued_at DATETIME NOT NULL,
+			PRIMARY KEY  (item_id),
+			KEY enqueued_idx (enqueued_at)
+		) {$charset};";
+		dbDelta( $sql );
+	}
+
+	/**
+	 * Move the pre-1.4.2 option-based queue into the table, once.
+	 */
+	public static function migrate_queue_option(): void {
+		global $wpdb;
+		$old = get_option( self::QUEUE_OPTION, null );
+		if ( null === $old ) {
+			return;
+		}
+		$ids = is_array( $old ) ? array_values( array_unique( array_filter( array_map( 'absint', $old ) ) ) ) : array();
+		if ( $ids ) {
+			$table = self::queue_table();
+			$now   = current_time( 'mysql', true );
+			foreach ( array_chunk( $ids, 500 ) as $chunk ) {
+				$values = array();
+				$args   = array();
+				foreach ( $chunk as $id ) {
+					$values[] = '(%d, %s)';
+					$args[]   = (int) $id;
+					$args[]   = $now;
+				}
+				// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared,PluginCheck.Security.DirectDB.UnescapedDBParameter,WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- One-off migration into the plugin's own table; VALUES is a list of (%d, %s) placeholders matching the chunk, which the sniff cannot count.
+				$wpdb->query( $wpdb->prepare( "INSERT IGNORE INTO {$table} (item_id, enqueued_at) VALUES " . implode( ',', $values ), $args ) );
+				// phpcs:enable
+			}
+		}
+		delete_option( self::QUEUE_OPTION );
+	}
+
+	/**
+	 * Add every Tainacan item to the queue (full reindex bootstrap).
 	 */
 	public function enqueue_all(): int {
 		$ids = $this->fetch_all_tainacan_item_ids();
-		// Through the same lock as every other write: a harvest saving items while
-		// the button is clicked must not have its IDs overwritten by this list.
-		$queue = $this->mutate_queue(
-			static function ( array $current ) use ( $ids ): array {
-				return array_merge( $ids, $current );
-			}
-		);
+		$this->enqueue( $ids );
+		$size = $this->queue_size();
 		$this->set_state( self::STATE_RUNNING );
-		$this->metrics->observe_queue_size( count( $queue ) );
-		$this->logger->info( Logger::CHAN_INDEXER, 'Fila de reindexação total preenchida.', array( 'count' => count( $queue ) ) );
-		return count( $queue );
+		$this->metrics->observe_queue_size( $size );
+		$this->logger->info( Logger::CHAN_INDEXER, 'Fila de reindexação total preenchida.', array( 'count' => $size ) );
+		return $size;
 	}
 
 	/**
-	 * Replace the queue with all items from a specific collection.
+	 * Add every item of one collection to the queue.
 	 */
 	public function enqueue_collection( int $collection_id ): int {
-		$ids   = $this->fetch_collection_item_ids( $collection_id );
-		$queue = $this->mutate_queue(
-			static function ( array $current ) use ( $ids ): array {
-				return array_merge( $ids, $current );
-			}
-		);
+		$ids = $this->fetch_collection_item_ids( $collection_id );
+		$this->enqueue( $ids );
+		$size = $this->queue_size();
 		$this->set_state( self::STATE_RUNNING );
-		$this->metrics->observe_queue_size( count( $queue ) );
+		$this->metrics->observe_queue_size( $size );
 		$this->logger->info(
 			Logger::CHAN_INDEXER,
 			'Fila de reindexação por coleção preenchida.',
 			array(
 				'collection_id' => $collection_id,
-				'count'         => count( $queue ),
+				'count'         => $size,
 			)
 		);
-		return count( $queue );
+		return $size;
 	}
 
 	/**
@@ -249,14 +311,27 @@ final class Indexer {
 				'ok'        => false,
 				'skipped'   => 'es_not_configured',
 				'processed' => 0,
-				'remaining' => count( $this->load_queue() ),
+				'remaining' => $this->queue_size(),
 				'state'     => $this->get_state(),
 				'message'   => __( 'Elasticsearch não configurado.', 'tainacan-index-manager' ),
 			);
 		}
 
-		$queue = $this->load_queue();
-		if ( empty( $queue ) ) {
+		// Cluster known to be down (visitor breaker open) or a _bulk that just
+		// failed: wait instead of holding a worker for the 60 s bulk timeout
+		// every minute and logging three lines per tick for a day-long outage.
+		if ( $this->client->live_breaker_open() || false !== get_transient( self::BACKOFF_TRANSIENT ) ) {
+			return array(
+				'ok'        => false,
+				'skipped'   => 'es_backoff',
+				'processed' => 0,
+				'remaining' => $this->queue_size(),
+				'state'     => $this->get_state(),
+				'message'   => __( 'Elasticsearch indisponível há pouco; o lote espera.', 'tainacan-index-manager' ),
+			);
+		}
+
+		if ( 0 === $this->queue_size() ) {
 			$this->set_state( self::STATE_FINISHED );
 			return array(
 				'ok'        => true,
@@ -274,17 +349,19 @@ final class Indexer {
 			return array(
 				'ok'        => true,
 				'processed' => 0,
-				'remaining' => count( $queue ),
+				'remaining' => $this->queue_size(),
 				'state'     => $this->get_state(),
 				'message'   => __( 'Outro lote está em andamento.', 'tainacan-index-manager' ),
 			);
 		}
 
 		try {
-			// Re-read under the lock: another process may have drained this head
-			// of the queue between our first read and the lock.
-			$queue = $this->load_queue();
-			if ( empty( $queue ) ) {
+			// Read under the lock: another process may have drained this head of
+			// the queue between the size check and the lock.
+			$batch_size = (int) $this->settings->get( 'batch_size', 50 );
+			$before     = $this->queue_size();
+			$batch      = $this->next_batch( $batch_size );
+			if ( empty( $batch ) ) {
 				$this->set_state( self::STATE_FINISHED );
 				return array(
 					'ok'        => true,
@@ -294,11 +371,14 @@ final class Indexer {
 					'message'   => __( 'Fila vazia.', 'tainacan-index-manager' ),
 				);
 			}
-			return $this->run_batch( $queue );
+			return $this->run_batch( $batch, $before );
 		} finally {
 			$this->release_batch_lock();
 		}
 	}
+
+	/** Transient set after a failed _bulk; ticks skip while it lives. */
+	private const BACKOFF_TRANSIENT = 'tim_index_backoff';
 
 	/**
 	 * Named MySQL lock for the batch (same mechanism as the queue): atomic, no
@@ -325,12 +405,9 @@ final class Indexer {
 	/**
 	 * The body of process_batch(), run under the batch lock.
 	 */
-	private function run_batch( array $queue ): array {
+	private function run_batch( array $batch, int $queue_before ): array {
 		$this->set_state( self::STATE_RUNNING );
-		$batch_size   = (int) $this->settings->get( 'batch_size', 50 );
-		$batch        = array_slice( $queue, 0, $batch_size );
-		$queue_before = count( $queue );
-		$start_ts     = microtime( true );
+		$start_ts = microtime( true );
 
 		$index   = (string) $this->settings->get( 'index_name' );
 		$lines   = array();
@@ -355,7 +432,7 @@ final class Indexer {
 
 		$indexed       = 0;
 		$failed        = array();
-		$error_summary = array(); // type => array('count' => N, 'sample_reason' => string, 'sample_id' => int)
+		$error_summary = array(); // Keyed by ES error type: count, sample reason and sample item id.
 
 		if ( ! empty( $lines ) ) {
 			$res = $this->client->bulk( $lines );
@@ -368,10 +445,13 @@ final class Indexer {
 						'error' => $res->get_error_message(),
 					)
 				);
+				// Back off for 5 minutes: the next ticks skip instead of repeating
+				// a 60 s timeout per minute (see process_batch()).
+				set_transient( self::BACKOFF_TRANSIENT, 1, 5 * MINUTE_IN_SECONDS );
 				return array(
 					'ok'        => false,
 					'processed' => 0,
-					'remaining' => count( $queue ),
+					'remaining' => $queue_before,
 					'state'     => $this->get_state(),
 					'message'   => $res->get_error_message(),
 				);
@@ -454,17 +534,15 @@ final class Indexer {
 			}
 		}
 
-		// Subtract this batch from the queue as it is *now*, not as it was when the
-		// batch started: items saved while the batch was being built and sent were
-		// enqueued by other processes and must survive this write.
-		$queue = $this->mutate_queue(
-			static function ( array $current ) use ( $processed_ids, $requeue ): array {
-				return array_merge( array_diff( $current, $processed_ids ), $requeue );
-			}
-		);
+		// Row-level DELETE/INSERT: items saved while the batch was being built
+		// and sent live in their own rows and are untouched by this write.
+		$this->dequeue( $processed_ids );
+		if ( $requeue ) {
+			$this->enqueue( $requeue );
+		}
 		update_option( self::FAILURES_OPTION, $failures, false );
 
-		$remaining = count( $queue );
+		$remaining = $this->queue_size();
 		if ( 0 === $remaining ) {
 			$this->set_state( self::STATE_FINISHED );
 		}
@@ -666,7 +744,8 @@ final class Indexer {
 		}
 
 		// Heuristic identifier: GUID or slug.
-		$doc['identifier'] = (string) ( get_post_meta( $post->ID, 'identifier', true ) ?: $post->post_name );
+		$identifier        = (string) get_post_meta( $post->ID, 'identifier', true );
+		$doc['identifier'] = '' !== $identifier ? $identifier : (string) $post->post_name;
 
 		return $doc;
 	}
@@ -889,6 +968,11 @@ final class Indexer {
 	 * Detect whether $post_type matches a Tainacan collection item post type.
 	 */
 	public function is_tainacan_item_post_type( string $post_type ): bool {
+		// Cheap pre-filter: saving a page, menu or attachment must not cost a
+		// WP_Query over all collections just to answer "no".
+		if ( ! preg_match( '/^tnc_col_\d+_item$/', $post_type ) ) {
+			return false;
+		}
 		static $cache = null;
 		if ( null === $cache ) {
 			$cache = array();
@@ -904,7 +988,11 @@ final class Indexer {
 						}
 					}
 				} catch ( \Throwable $e ) {
-					// best effort; cache stays empty.
+					// Cache stays empty: nothing is enqueued until the next request.
+					if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+						// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Guarded by WP_DEBUG; a silent failure here means items never reach the index.
+						error_log( 'tainacan-index-manager: Collections::fetch failed: ' . $e->getMessage() );
+					}
 				}
 			}
 		}
@@ -1048,9 +1136,18 @@ final class Indexer {
 		return $this->enqueue( $missing );
 	}
 
+	/**
+	 * Every queued ID, oldest first (diagnostics; the batch uses next_batch()).
+	 *
+	 * @return int[]
+	 */
 	public function load_queue(): array {
-		$q = get_option( self::QUEUE_OPTION, array() );
-		return is_array( $q ) ? array_map( 'intval', $q ) : array();
+		global $wpdb;
+		$table = self::queue_table();
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared,PluginCheck.Security.DirectDB.UnescapedDBParameter -- Plugin's own queue table; contents change with every save and batch.
+		$ids = $wpdb->get_col( "SELECT item_id FROM {$table} ORDER BY enqueued_at ASC, item_id ASC" );
+		// phpcs:enable
+		return array_map( 'intval', (array) $ids );
 	}
 
 	public function load_failures(): array {
@@ -1059,7 +1156,11 @@ final class Indexer {
 	}
 
 	public function queue_size(): int {
-		return count( $this->load_queue() );
+		global $wpdb;
+		$table = self::queue_table();
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared,PluginCheck.Security.DirectDB.UnescapedDBParameter -- Plugin's own queue table; COUNT changes with every save and batch.
+		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" );
+		// phpcs:enable
 	}
 
 	public function failure_count(): int {
@@ -1099,7 +1200,12 @@ final class Indexer {
 	}
 
 	public function cancel(): void {
-		update_option( self::QUEUE_OPTION, array(), false );
+		global $wpdb;
+		$table = self::queue_table();
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared,PluginCheck.Security.DirectDB.UnescapedDBParameter -- Plugin's own queue table; write path.
+		$wpdb->query( "DELETE FROM {$table}" );
+		// phpcs:enable
+		delete_transient( self::BACKOFF_TRANSIENT );
 		$this->set_state( self::STATE_IDLE );
 		$this->logger->info( Logger::CHAN_INDEXER, 'Fila de indexação cancelada.' );
 	}
@@ -1123,7 +1229,11 @@ final class Indexer {
 					}
 				}
 			} catch ( \Throwable $e ) {
-				// best effort.
+				// Best effort: the SQL fallback for listing items takes over.
+				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+					// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Guarded by WP_DEBUG; otherwise a repository failure is invisible.
+					error_log( 'tainacan-index-manager: collections lookup failed: ' . $e->getMessage() );
+				}
 			}
 		}
 		return array_filter( array_unique( $types ) );

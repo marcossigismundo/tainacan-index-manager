@@ -79,8 +79,15 @@ final class Cron {
 	}
 
 	public function ensure_scheduled(): void {
-		$freq = (string) $this->settings->get( 'auto_check_frequency', 'hourly' );
-		if ( ! wp_next_scheduled( self::HOOK_HEALTH ) ) {
+		$freq  = (string) $this->settings->get( 'auto_check_frequency', 'hourly' );
+		$event = function_exists( 'wp_get_scheduled_event' ) ? wp_get_scheduled_event( self::HOOK_HEALTH ) : false;
+		if ( $event && isset( $event->schedule ) && (string) $event->schedule !== $freq ) {
+			// Frequency changed in the settings: reschedule, or the old one stays
+			// until the plugin is deactivated and reactivated.
+			wp_clear_scheduled_hook( self::HOOK_HEALTH );
+			$event = false;
+		}
+		if ( ! $event && ! wp_next_scheduled( self::HOOK_HEALTH ) ) {
 			wp_schedule_event( time() + 60, $freq, self::HOOK_HEALTH );
 		}
 

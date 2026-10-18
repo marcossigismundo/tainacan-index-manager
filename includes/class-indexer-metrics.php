@@ -247,7 +247,7 @@ final class Indexer_Metrics {
 				'size'          => (int) $queue_size,
 				'peak_observed' => (int) $doc['peak_queue_size'],
 				'eta_seconds'   => $eta_seconds,
-				'eta_human'     => $eta_seconds !== null ? $this->humanize_seconds( $eta_seconds ) : null,
+				'eta_human'     => null !== $eta_seconds ? $this->humanize_seconds( $eta_seconds ) : null,
 			),
 			'failure_top'        => $doc['failure_top'] ?? array(),
 			'last_error_summary' => $doc['last_error_summary'] ?? array(),

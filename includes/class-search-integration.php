@@ -55,18 +55,18 @@ final class Search_Integration {
 	private static bool $suspended = false;
 
 	/**
-	 * Run $fn with ES routing suspended, so any WP_Query it triggers goes to SQL.
+	 * Run $callback with ES routing suspended, so any WP_Query it triggers goes to SQL.
 	 *
 	 * Restores the previous state rather than clearing it, so nested calls are safe.
 	 *
-	 * @param callable $fn Work to run.
-	 * @return mixed Whatever $fn returns.
+	 * @param callable $callback Work to run.
+	 * @return mixed Whatever $callback returns.
 	 */
-	public static function without_routing( callable $fn ) {
+	public static function without_routing( callable $callback ) {
 		$previous        = self::$suspended;
 		self::$suspended = true;
 		try {
-			return $fn();
+			return $callback();
 		} finally {
 			self::$suspended = $previous;
 		}
@@ -89,8 +89,12 @@ final class Search_Integration {
 				// Paging through results repeats the same words, so the probe is
 				// remembered per clause for a few minutes: one _count per word, not
 				// one per page view. Only hits are cached; a failure is retried.
+				// Keyed by the visitor's typed text: without a persistent object
+				// cache every distinct search would leave two rows in wp_options
+				// for 10 minutes (tens of thousands a day on a busy site), so the
+				// probe is only persisted when an object cache holds it.
 				$key    = 'tim_probe_' . md5( (string) wp_json_encode( $clause ) );
-				$cached = get_transient( $key );
+				$cached = wp_using_ext_object_cache() ? wp_cache_get( $key, 'tainacan_index_manager' ) : false;
 				if ( false !== $cached ) {
 						return (int) $cached;
 				}
@@ -108,7 +112,9 @@ final class Search_Integration {
 				if ( is_wp_error( $res ) ) {
 					return null;
 				}
-				set_transient( $key, (int) $res, 10 * MINUTE_IN_SECONDS );
+				if ( wp_using_ext_object_cache() ) {
+					wp_cache_set( $key, (int) $res, 'tainacan_index_manager', 10 * MINUTE_IN_SECONDS );
+				}
 				return (int) $res;
 			}
 		);
@@ -151,6 +157,11 @@ final class Search_Integration {
 	 * @return array|null
 	 */
 	private function answer( \WP_Query $query ): ?array {
+		// The found_posts filters fire synchronously inside the same get_posts()
+		// call, so nothing from a previous query needs to survive; without this
+		// reset a long WP-CLI/import process accumulated one WP_Query (and its
+		// posts) per routed fetch until it ran out of memory.
+		$this->pending_totals = array();
 
 		if ( ! $this->should_handle( $query ) ) {
 			return null;
@@ -221,8 +232,12 @@ final class Search_Integration {
 		}
 
 		// WP_Query maps whatever we return through get_post(). Priming the cache
-		// here turns that into one query instead of one per row.
-		_prime_post_caches( $ids, true, true );
+		// here turns that into one query instead of one per row. Not for
+		// `fields => ids` (facet counts, importers): nobody reads those posts.
+		$fields = (string) $query->get( 'fields' );
+		if ( '' === $fields || 'all' === $fields ) {
+			_prime_post_caches( $ids, true, true );
+		}
 
 		return $ids;
 	}
@@ -544,8 +559,12 @@ final class Search_Integration {
 					}
 				);
 			} catch ( \Throwable $e ) {
-				// best effort.
+				// Everything goes to SQL for this request; leave a trace in dev.
 				$types = array();
+				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+					// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Guarded by WP_DEBUG; a silent repository failure hides why nothing is routed.
+					error_log( 'tainacan-index-manager: collection post types lookup failed: ' . $e->getMessage() );
+				}
 			}
 		}
 

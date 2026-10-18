@@ -137,7 +137,12 @@ final class Settings {
 	 */
 	public static function install_defaults(): void {
 		if ( false === get_option( self::OPTION_KEY, false ) ) {
-			add_option( self::OPTION_KEY, self::defaults(), '', false );
+			// Autoloaded: Settings is built on plugins_loaded of EVERY request, so
+			// without autoload this ~1 KB option was one SELECT per page view on
+			// sites with no persistent object cache.
+			add_option( self::OPTION_KEY, self::defaults(), '', true );
+		} elseif ( function_exists( 'wp_set_option_autoload' ) ) {
+			wp_set_option_autoload( self::OPTION_KEY, true );
 		}
 	}
 
@@ -211,14 +216,14 @@ final class Settings {
 	 * Read a single setting value with default fallback.
 	 *
 	 * @param string $key     Setting key.
-	 * @param mixed  $default Default value if absent.
+	 * @param mixed  $fallback Default value if absent.
 	 * @return mixed
 	 */
-	public function get( string $key, $default = null ) {
+	public function get( string $key, $fallback = null ) {
 		if ( array_key_exists( $key, $this->cache ) ) {
 			return $this->cache[ $key ];
 		}
-		return $default;
+		return $fallback;
 	}
 
 	/**
@@ -277,7 +282,7 @@ final class Settings {
 			$current[ $k ] = $this->sanitize_value( $k, $v );
 		}
 
-		$ok          = update_option( self::OPTION_KEY, $current, false );
+		$ok          = update_option( self::OPTION_KEY, $current, true );
 		$this->cache = self::all();
 		return (bool) $ok;
 	}

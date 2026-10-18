@@ -37,6 +37,9 @@ final class ES_Query_Builder {
 			array(
 				'post_type'    => $query->get( 'post_type' ),
 				'post_status'  => $query->get( 'post_status' ),
+				// Tainacan's REST layer injects `perm=readable`; without it the
+				// builder could not tell a widened status set from a default one.
+				'perm'         => $query->get( 'perm' ),
 				's'            => $query->get( 's' ),
 				'meta_query'   => $query->get( 'meta_query' ),
 				'tax_query'    => $query->get( 'tax_query' ),
@@ -303,7 +306,7 @@ final class ES_Query_Builder {
 	private static function wants_prefix( string $s ): bool {
 		$words = preg_split( '/\s+/u', trim( $s ) );
 		$last  = self::fold_word( (string) end( $words ) );
-		if ( mb_strlen( $last ) < 3 || null === self::$count_probe ) {
+		if ( ( function_exists( 'mb_strlen' ) ? mb_strlen( $last ) : strlen( $last ) ) < 3 || null === self::$count_probe ) {
 			return false;
 		}
 		// Exact match only: with typo tolerance on, "fotogr" would "exist" by similarity.
@@ -366,7 +369,7 @@ final class ES_Query_Builder {
 	}
 
 	private static function fold_word( string $w ): string {
-		$w = remove_accents( mb_strtolower( $w, 'UTF-8' ) );
+		$w = remove_accents( function_exists( 'mb_strtolower' ) ? mb_strtolower( $w, 'UTF-8' ) : strtolower( $w ) );
 		return (string) preg_replace( '/[^a-z0-9]/', '', $w );
 	}
 
@@ -438,21 +441,32 @@ final class ES_Query_Builder {
 		}
 
 		$requested = (array) $requested;
+		$statuses  = array();
 		if ( in_array( 'any', $requested, true ) ) {
-			return self::INDEXED_STATUSES;
-		}
-
-		$statuses = array();
-		foreach ( $requested as $status ) {
-			$status = (string) $status;
-			if ( ! in_array( $status, self::INDEXED_STATUSES, true ) ) {
-				// e.g. `trash`, `auto-draft` — never indexed, so ES cannot answer this.
-				return null;
+			$statuses = self::INDEXED_STATUSES;
+		} else {
+			foreach ( $requested as $status ) {
+				$status = (string) $status;
+				if ( ! in_array( $status, self::INDEXED_STATUSES, true ) ) {
+					// e.g. `trash`, `auto-draft` — never indexed, so ES cannot answer this.
+					return null;
+				}
+				$statuses[] = $status;
 			}
-			$statuses[] = $status;
+		}
+		$statuses = empty( $statuses ) ? array( 'publish' ) : array_values( array_unique( $statuses ) );
+
+		// An explicit non-public status is only honoured for a viewer who may
+		// read private items of these post types. Tainacan's REST sanitizer only
+		// checks that the status exists, not the capability: with `?status=private`
+		// WP_Query + `perm=readable` resolves to "own private posts" (none for a
+		// visitor), while the index would have returned every private item. The
+		// author-scoped case is SQL's to answer.
+		if ( array_diff( $statuses, array( 'publish' ) ) && ( ! is_user_logged_in() || ! self::can_read_private( $post_types ) ) ) {
+			return null;
 		}
 
-		return empty( $statuses ) ? array( 'publish' ) : array_values( array_unique( $statuses ) );
+		return $statuses;
 	}
 
 	/**
@@ -902,7 +916,7 @@ final class ES_Query_Builder {
 				// differently-paginated — result set.
 				return null;
 			default:
-				// `rand`, `meta_value`, `meta_value_num`, `menu_order`, ...
+				// Random, meta value, menu order and the other orderings are not modelled.
 				return null;
 		}
 	}

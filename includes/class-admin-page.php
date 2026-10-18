@@ -243,6 +243,7 @@ final class Admin_Page {
 		echo '</div>';
 	}
 
+	// phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.Found -- admin_enqueue_scripts passes the hook; the page is read from $_GET because the fallback menu has no fixed hook name.
 	public function enqueue_fallback_assets( string $hook ): void {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only admin page-slug check; no state mutation.
 		$page  = isset( $_GET['page'] ) ? sanitize_text_field( wp_unslash( $_GET['page'] ) ) : '';
