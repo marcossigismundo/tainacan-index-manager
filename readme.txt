@@ -4,7 +4,7 @@ Tags: tainacan, elasticsearch, opensearch, search, indexing, synonyms
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.4.2
+Stable tag: 1.4.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -55,6 +55,9 @@ A busca degrada automaticamente para SQL, o semáforo fica vermelho, um alerta �
 == Changelog ==
 
 
+
+= 1.4.3 =
+* Security: an anonymous request asking for a non-public `post_status` now gets the public set from the index instead of falling back to SQL — measured on 2026-10-18, Tainacan core + WP_Query still listed a private item to an anonymous `?status=private` request, so SQL was not a safe fallback for visitors. Logged-in users without the capability still fall back to SQL (own private items).
 = 1.4.2 =
 * Security: an explicit non-public `post_status` (private, draft, pending) is only answered by the index for users who may read private items of those post types; other requests fall back to SQL, which applies the author-scoped rule. `perm` is now passed to the query builder. Anonymous `?status=private` no longer lists private items when routing is on.
 * Load: the indexing queue moved from a single serialized option to the plugin's own table (`{prefix}tnc_idxmgr_queue`, INSERT IGNORE per save, row-level dequeue); the old option is migrated on upgrade. Importing thousands of items no longer rewrites a growing option on every save.

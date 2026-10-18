@@ -458,12 +458,19 @@ final class ES_Query_Builder {
 
 		// An explicit non-public status is only honoured for a viewer who may
 		// read private items of these post types. Tainacan's REST sanitizer only
-		// checks that the status exists, not the capability: with `?status=private`
-		// WP_Query + `perm=readable` resolves to "own private posts" (none for a
-		// visitor), while the index would have returned every private item. The
-		// author-scoped case is SQL's to answer.
-		if ( array_diff( $statuses, array( 'publish' ) ) && ( ! is_user_logged_in() || ! self::can_read_private( $post_types ) ) ) {
-			return null;
+		// checks that the status exists, not the capability. A visitor gets the
+		// public set regardless of what was asked (measured on 2026-10-18: core
+		// Tainacan + WP_Query with `perm=readable` still listed a private item
+		// to an anonymous request, so SQL is not a safe fallback here). A
+		// logged-in user without the capability sees their *own* private items,
+		// an author-scoped rule that SQL answers.
+		if ( array_diff( $statuses, array( 'publish' ) ) ) {
+			if ( ! is_user_logged_in() ) {
+				return array( 'publish' );
+			}
+			if ( ! self::can_read_private( $post_types ) ) {
+				return null;
+			}
 		}
 
 		return $statuses;
