@@ -252,7 +252,7 @@ final class Diagnostics {
 		$auto_on    = (bool) $this->settings->get( 'auto_indexing_enabled', false );
 
 		if ( null !== $snapshot['divergence_pct'] && $snapshot['divergence_pct'] > $snapshot['divergence_threshold_pct'] ) {
-			$is_initial = ( (int) $snapshot['index_doc_count'] === 0 && (int) $snapshot['tainacan_item_count'] > 0 );
+			$is_initial = ( 0 === (int) $snapshot['index_doc_count'] && (int) $snapshot['tainacan_item_count'] > 0 );
 			$findings[] = $this->finding(
 				$is_initial ? 'info' : 'warning',
 				$is_initial

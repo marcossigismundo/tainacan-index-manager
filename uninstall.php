@@ -22,6 +22,8 @@ function tainacan_idxmgr_uninstall_site(): void {
 	delete_option( \TainacanIndexManager\Settings::OPTION_KEY );
 	delete_option( 'tainacan_idxmgr_alerts' );
 	delete_option( 'tainacan_idxmgr_queue' );
+	// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared,PluginCheck.Security.DirectDB.UnescapedDBParameter -- Uninstall: drop the plugin's own queue table; $wpdb->prefix is trusted.
+	$wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}tnc_idxmgr_queue" );
 	delete_option( 'tainacan_idxmgr_failures' );
 	delete_option( 'tainacan_idxmgr_indexer_state' );
 	delete_option( 'tainacan_idxmgr_metrics' );

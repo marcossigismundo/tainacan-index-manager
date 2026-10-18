@@ -9,6 +9,7 @@
  * @package TainacanIndexManager
  */
 
+// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedNamespaceFound -- \Tainacan\Pages subclasses live in the core namespace (the Pages registry resolves them there); this file is loaded only when \Tainacan\Pages exists.
 namespace Tainacan;
 
 defined( 'ABSPATH' ) || exit;
@@ -29,14 +30,6 @@ class TIM_Dashboard_Page extends \Tainacan\Pages {
 	use \Tainacan\Traits\Singleton_Instance;
 
 	public const SLUG = 'tainacan_idxmgr_dashboard';
-
-	/**
-	 * Must remain `public` to match \Tainacan\Pages::init() visibility — PHP
-	 * raises a fatal "Access level must be public" if we narrow it to protected.
-	 */
-	public function init() {
-		parent::init();
-	}
 
 	protected function get_page_slug(): string {
 		return self::SLUG;

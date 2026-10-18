@@ -239,6 +239,26 @@ class Elasticsearch_Client {
 	}
 
 	/**
+	 * May this (code|type) be logged now? True at most once a minute per key,
+	 * across processes (transient) and within this process (static).
+	 *
+	 * @param string $key Code and error type.
+	 */
+	private function log_throttled( string $key ): bool {
+		static $seen = array();
+		if ( isset( $seen[ $key ] ) ) {
+			return false;
+		}
+		$seen[ $key ] = true;
+		$tkey         = 'tim_logth_' . md5( $key );
+		if ( false !== get_transient( $tkey ) ) {
+			return false;
+		}
+		set_transient( $tkey, 1, MINUTE_IN_SECONDS );
+		return true;
+	}
+
+	/**
 	 * Is the visitor-query breaker open right now?
 	 */
 	public function live_breaker_open(): bool {
@@ -263,9 +283,14 @@ class Elasticsearch_Client {
 		$res = $call();
 
 		if ( is_wp_error( $res ) ) {
-			$data   = $res->get_error_data();
-			$code   = is_array( $data ) ? (int) ( $data['code'] ?? 0 ) : 0;
-			$counts = 0 === strpos( (string) $res->get_error_code(), 'http_request' ) || $code >= 500 || 429 === $code;
+			$data = $res->get_error_data();
+			$code = is_array( $data ) ? (int) ( $data['code'] ?? 0 ) : 0;
+			$type = is_array( $data ) ? (string) ( $data['error_type'] ?? '' ) : '';
+			// A closed or blocked index (vocabulary being applied, read-only
+			// block) answers 4xx but is just as unusable as a down cluster: let
+			// the breaker open instead of paying one failing HTTP call per visitor.
+			$blocked = in_array( $type, array( 'index_closed_exception', 'cluster_block_exception', 'index_not_found_exception' ), true );
+			$counts  = 0 === strpos( (string) $res->get_error_code(), 'http_request' ) || $code >= 500 || 429 === $code || $blocked;
 			if ( $counts ) {
 				$this->live_failure( $res->get_error_message() );
 			}
@@ -302,9 +327,8 @@ class Elasticsearch_Client {
 			);
 		}
 
-		// Autoloaded: read on every request, so it must ride along with alloptions
 		// instead of costing its own query.
-		update_option( self::LIVE_BREAKER_OPTION, $new, true );
+		update_option( self::LIVE_BREAKER_OPTION, $new, false );
 	}
 
 	private function live_success(): void {
@@ -312,7 +336,7 @@ class Elasticsearch_Client {
 		if ( is_array( $state ) && ( 0 !== (int) ( $state['failures'] ?? 0 ) || 0 !== (int) ( $state['open_until'] ?? 0 ) ) ) {
 			$state['failures']   = 0;
 			$state['open_until'] = 0;
-			update_option( self::LIVE_BREAKER_OPTION, $state, true );
+			update_option( self::LIVE_BREAKER_OPTION, $state, false );
 		}
 	}
 
@@ -546,17 +570,23 @@ class Elasticsearch_Client {
 				);
 			}
 
-			$this->logger->error(
-				Logger::CHAN_ELASTIC,
-				$short_message,
-				array(
-					'method'     => $method,
-					'path'       => $path,
-					'code'       => $code,
-					'error_type' => $err_type,
-					'reason'     => $err_reason,
-				)
-			);
+			// One log line per (code, error type) per minute. While the index is
+			// closed for a vocabulary change (up to 120 s) every visitor search and
+			// facet answers 400 index_closed_exception; unthrottled that was one
+			// INSERT per page view under load, on a database already struggling.
+			if ( $this->log_throttled( $code . '|' . $err_type ) ) {
+				$this->logger->error(
+					Logger::CHAN_ELASTIC,
+					$short_message,
+					array(
+						'method'     => $method,
+						'path'       => $path,
+						'code'       => $code,
+						'error_type' => $err_type,
+						'reason'     => $err_reason,
+					)
+				);
+			}
 
 			$wp_error_message = '' !== $err_reason
 				? sprintf(
@@ -682,6 +712,7 @@ class Elasticsearch_Client {
 		}
 
 		if ( '' !== $user || '' !== $pass ) {
+			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- HTTP Basic authentication header (RFC 7617) for the configured Elasticsearch server; not obfuscation.
 			$headers['Authorization'] = 'Basic ' . base64_encode( $user . ':' . $pass );
 		}
 		return $headers;

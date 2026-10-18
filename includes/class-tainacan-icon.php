@@ -79,6 +79,7 @@ final class Tainacan_Icon {
 		// plugin_dir_path( dirname( __FILE__, 2 ) ) . 'assets/icons/'.
 		$folder = plugin_dir_path( dirname( $file, 2 ) ) . 'assets/icons/';
 
+		// phpcs:ignore WordPress.NamingConventions.ValidHookName.UseUnderscores,WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Filter defined by Tainacan core (SVG_Icon trait); the name is theirs and must match.
 		return (string) apply_filters( 'tainacan-svg-icons-folder-path', $folder );
 	}
 }

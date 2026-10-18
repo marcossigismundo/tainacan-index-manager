@@ -205,7 +205,12 @@ final class Plugin {
 			return;
 		}
 		Logger::install();
+		Indexer::install_queue_table();
+		Indexer::migrate_queue_option();
 		Settings::install_defaults();
+		if ( false === get_option( Elasticsearch_Client::LIVE_BREAKER_OPTION, false ) ) {
+			add_option( Elasticsearch_Client::LIVE_BREAKER_OPTION, array(), '', false );
+		}
 		Cron::schedule_default();
 		update_option( self::DB_VERSION_OPTION, TAINACAN_INDEX_MANAGER_VERSION, true );
 	}
@@ -254,7 +259,12 @@ final class Plugin {
 
 	private static function install_site(): void {
 		Logger::install();
+		Indexer::install_queue_table();
+		Indexer::migrate_queue_option();
 		Settings::install_defaults();
+		if ( false === get_option( Elasticsearch_Client::LIVE_BREAKER_OPTION, false ) ) {
+			add_option( Elasticsearch_Client::LIVE_BREAKER_OPTION, array(), '', false );
+		}
 		Cron::schedule_default();
 		update_option( self::DB_VERSION_OPTION, TAINACAN_INDEX_MANAGER_VERSION, true );
 	}
