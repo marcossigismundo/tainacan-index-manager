@@ -1,0 +1,162 @@
+{
+    "generated": "2026-10-21T16:01:54Z",
+    "note": "Achados preexistentes aceitos temporariamente. Corrija e regenere com --baseline-generate; nunca acrescente à mão.",
+    "findings": [
+        {
+            "rule": "TNC-B06",
+            "file": "assets/index.php",
+            "line": 1,
+            "fingerprint": "0df51e7451b8bdf468e15d24afaf29820132b602"
+        },
+        {
+            "rule": "TNC-P01",
+            "file": "includes/class-collections-monitor.php",
+            "line": 78,
+            "fingerprint": "4be193cc336f551b9f433e5a02f970ec9be1514c"
+        },
+        {
+            "rule": "TNC-P01",
+            "file": "includes/class-facets-integration.php",
+            "line": 308,
+            "fingerprint": "6dc428c9b271a0d67f8595f3de845ccf79546112"
+        },
+        {
+            "rule": "TNC-P01",
+            "file": "includes/class-health-service.php",
+            "line": 380,
+            "fingerprint": "598490fc5bdcadb204a664901f040f28ed3241a5"
+        },
+        {
+            "rule": "TNC-P02",
+            "file": "includes/class-indexer.php",
+            "line": 161,
+            "fingerprint": "fbe2ddf00ee5947927f5f8c192ed90a6c155d92c"
+        },
+        {
+            "rule": "TNC-P02",
+            "file": "includes/class-indexer.php",
+            "line": 187,
+            "fingerprint": "96ead20c7770f1d81d67912298aebf617f74617c"
+        },
+        {
+            "rule": "TNC-P02",
+            "file": "includes/class-indexer.php",
+            "line": 255,
+            "fingerprint": "8d1de763e97cf05f21dc0c84a161376b7cc04fd5"
+        },
+        {
+            "rule": "TNC-P02",
+            "file": "includes/class-indexer.php",
+            "line": 835,
+            "fingerprint": "98dee9bf808cf36143ef4fb473c6f696e9673b9d"
+        },
+        {
+            "rule": "TNC-P01",
+            "file": "includes/class-indexer.php",
+            "line": 982,
+            "fingerprint": "424a0dcc6899d98deff1ad233217e33d445cd704"
+        },
+        {
+            "rule": "TNC-P01",
+            "file": "includes/class-indexer.php",
+            "line": 1014,
+            "fingerprint": "351be707df33539d31e5a74cd6b3002130db0e6b"
+        },
+        {
+            "rule": "TNC-P01",
+            "file": "includes/class-indexer.php",
+            "line": 1033,
+            "fingerprint": "351be707df33539d31e5a74cd6b3002130db0e6b"
+        },
+        {
+            "rule": "TNC-P01",
+            "file": "includes/class-indexer.php",
+            "line": 1068,
+            "fingerprint": "351be707df33539d31e5a74cd6b3002130db0e6b"
+        },
+        {
+            "rule": "TNC-P04",
+            "file": "includes/class-indexer.php",
+            "line": 1206,
+            "fingerprint": "249a423b65cc67745ef5bd2671e46c859ac33496"
+        },
+        {
+            "rule": "TNC-P01",
+            "file": "includes/class-indexer.php",
+            "line": 1223,
+            "fingerprint": "424a0dcc6899d98deff1ad233217e33d445cd704"
+        },
+        {
+            "rule": "TNC-P01",
+            "file": "includes/class-search-integration.php",
+            "line": 550,
+            "fingerprint": "d5b1fa1494d9f2ff3467faae4407e1b109380c8e"
+        },
+        {
+            "rule": "TNC-B06",
+            "file": "includes/index.php",
+            "line": 1,
+            "fingerprint": "c66330799c7a78f3d90e34cafc65bdba4d5293a7"
+        },
+        {
+            "rule": "TNC-B04",
+            "file": "tools/vocabulario/gerar-listas.js",
+            "line": 360,
+            "fingerprint": "4a6797ead42d0ce5f2786cfb55f834d20857b848"
+        },
+        {
+            "rule": "TNC-B04",
+            "file": "tools/vocabulario/gerar-listas.js",
+            "line": 362,
+            "fingerprint": "bb56b61b657bc879976a0fd048f5567f07cedd08"
+        },
+        {
+            "rule": "TNC-B04",
+            "file": "tools/vocabulario/gerar-listas.js",
+            "line": 363,
+            "fingerprint": "4d6642adafedc346437dbabfa5388d9092eae9ac"
+        },
+        {
+            "rule": "TNC-B04",
+            "file": "tools/vocabulario/gerar-listas.js",
+            "line": 364,
+            "fingerprint": "fb5d2d87ed4a6e88ec292d3a2d8193e94f22c1e0"
+        },
+        {
+            "rule": "TNC-B04",
+            "file": "tools/vocabulario/gerar-listas.js",
+            "line": 365,
+            "fingerprint": "a8a090d8d701c47aa3aea7b61611612fc97fabb3"
+        },
+        {
+            "rule": "TNC-B04",
+            "file": "tools/vocabulario/gerar-listas.js",
+            "line": 366,
+            "fingerprint": "05582395bada4c69dec499e315f112b39f22829e"
+        },
+        {
+            "rule": "TNC-P02",
+            "file": "tools/vocabulario/vocab-dump.php",
+            "line": 20,
+            "fingerprint": "b56d58e2471cb4197ff6a917ab411408e5b67618"
+        },
+        {
+            "rule": "TNC-P02",
+            "file": "tools/vocabulario/vocab-dump.php",
+            "line": 23,
+            "fingerprint": "b0e1323163e229beb87197ba7fb4af52951d88c8"
+        },
+        {
+            "rule": "TNC-P02",
+            "file": "tools/vocabulario/vocab-dump.php",
+            "line": 28,
+            "fingerprint": "40feb74e64a81578bec0e9ac7f81cbf21e871dfe"
+        },
+        {
+            "rule": "TNC-P02",
+            "file": "tools/vocabulario/vocab-dump.php",
+            "line": 88,
+            "fingerprint": "f9c8e972b650a83e3f03956709eca09f9d424a49"
+        }
+    ]
+}

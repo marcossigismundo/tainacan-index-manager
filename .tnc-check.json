@@ -1,0 +1,5 @@
+{
+  "text_domain": "tainacan-index-manager",
+  "exclude": ["vendor/", "node_modules/", "build/", "dist/", "assets/js/vendor/"],
+  "rules": {}
+}

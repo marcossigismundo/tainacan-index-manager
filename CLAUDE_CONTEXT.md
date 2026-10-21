@@ -337,3 +337,12 @@ nos comentários do código. Pontos para quem mantém:
   CI roda; `php7.4 -l` em todos os arquivos antes de publicar (o `match` do item-print passou por três revisões).
 - DÍVIDA: `WordPress-Docs` está comentado no `phpcs.xml.dist` (centenas de docblocks ausentes herdados). Reativar quando documentar; os demais rulesets seguem ativos.
 - Relatório consolidado da rodada: `C:\tmp\plugins-review\ESTRATEGIA-REVISAO.md`, seção 9.
+
+## Stack de IA do Tainacan (21/10/2026)
+
+Este repositório adotou a Stack de IA do Tainacan (`.agents/`, versão 0.1.0; fonte em github.com/marcossigismundo/tainacan-stack-ia). `AGENTS.md` traz as regras curtas do projeto e o bloco da stack; `CLAUDE.md` só importa `@AGENTS.md`; este arquivo continua sendo o contexto completo.
+
+- Verificação antes de entregar: `php .agents/tainacan-stack/bin/tnc-check --changed`. O gancho pre-commit bloqueia commit com achado de bloqueio; o CI (`.github/workflows/tnc-check.yml`) avalia só as linhas alteradas.
+- `.tnc-check-baseline.json` guarda os 26 achados que já existiam (avisos de SQL sem `prepare` com valor interno, consultas em laço e handlers sem capability). Ao corrigir um, regenere com `tnc-check --baseline-generate`.
+- Depois do clone em outra máquina: `php .agents/tainacan-stack/bin/tnc-stack gancho .`. No Windows com XAMPP, defina `TNC_PHP` com o caminho do `php.exe`.
+- Atualizar a stack: `php <clone-da-stack>/stack/tainacan-stack/bin/tnc-stack atualizar .`.
