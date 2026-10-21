@@ -345,10 +345,25 @@ TXT;
             return;
         }
         $ctx = ProjectContext::forRoot($this->target);
-        $tpl = (string) file_get_contents($this->source . '/tainacan-stack/templates/tnc-check.json');
-        $tpl = str_replace('{{TEXT_DOMAIN}}', $ctx->textDomain ?: basename($this->target), $tpl);
-        $this->write($file, $tpl);
-        $this->log[] = '.tnc-check.json criado (domínio de texto: ' . ($ctx->textDomain ?: basename($this->target)) . ')';
+        $data = json_decode((string) file_get_contents($this->source . '/tainacan-stack/templates/tnc-check.json'), true);
+        // plugin numa subpasta (o núcleo fica em src/): declara plugin_dir quando só uma subpasta tem cabeçalho
+        if (!$ctx->isPlugin()) {
+            $withHeader = [];
+            foreach (glob($this->target . '/*', GLOB_ONLYDIR) ?: [] as $sub) {
+                if (!preg_match('#/(vendor|node_modules|tests?|docs|build|dist|\.\w+)$#', $sub) && ProjectContext::forRoot(str_replace('\\', '/', $sub))->isPlugin()) {
+                    $withHeader[] = basename($sub);
+                }
+            }
+            if (count($withHeader) === 1) {
+                $data['plugin_dir'] = $withHeader[0];
+                $data['exclude'][] = $withHeader[0] . '/vendor/';
+                $this->log[] = 'plugin encontrado em ' . $withHeader[0] . '/: declarado como plugin_dir';
+                $ctx = ProjectContext::forRoot($this->target . '/' . $withHeader[0]);
+            }
+        }
+        $data['text_domain'] = $ctx->textDomain ?: basename($this->target);
+        $this->write($file, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+        $this->log[] = '.tnc-check.json criado (domínio de texto: ' . $data['text_domain'] . ')';
     }
 
     /**

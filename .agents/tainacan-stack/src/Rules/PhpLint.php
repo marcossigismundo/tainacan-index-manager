@@ -6,7 +6,12 @@ use TainacanStack\Check\Finding;
 use TainacanStack\Check\Rule;
 use TainacanStack\Check\SourceFile;
 
-/** TNC-B01: o arquivo PHP precisa passar no `php -l` do mesmo binário que roda o verificador. */
+/**
+ * TNC-B01: erro de sintaxe PHP. Usa o próprio analisador do PHP em processo
+ * (token_get_all com TOKEN_PARSE), que é o mesmo do `php -l`, sem abrir um
+ * processo por arquivo: uma varredura de milhares de arquivos cai de minutos
+ * para segundos. Com --no-lint a regra é desligada.
+ */
 final class PhpLint extends Rule
 {
     const ID = 'TNC-B01';
@@ -22,23 +27,15 @@ final class PhpLint extends Rule
         if (!self::$enabled || !$f->isPhp()) {
             return;
         }
-        $tmp = tempnam(sys_get_temp_dir(), 'tnc');
-        file_put_contents($tmp, $f->text);
-        $cmd = escapeshellarg(PHP_BINARY) . ' -d display_errors=1 -d error_reporting=-1 -l ' . escapeshellarg($tmp) . ' 2>&1';
-        $out = [];
-        $code = 0;
-        exec($cmd, $out, $code);
-        @unlink($tmp);
-        if ($code === 0) {
-            return;
+        $level = error_reporting(0); // deprecações de compilação não interessam aqui
+        try {
+            token_get_all($f->text, TOKEN_PARSE);
+        } catch (\ParseError $e) {
+            $this->report($f, $e->getLine() ?: 1, 'Erro de sintaxe: ' . $e->getMessage() . '.', 'Corrija a sintaxe antes de qualquer outra verificação.');
+        } catch (\Throwable $e) {
+            $this->report($f, 1, 'O PHP não conseguiu analisar o arquivo: ' . $e->getMessage() . '.', 'Confira com php -l.');
+        } finally {
+            error_reporting($level);
         }
-        $msg = trim(implode(' ', $out));
-        $line = 1;
-        if (preg_match('/on line (\d+)/', $msg, $m)) {
-            $line = (int) $m[1];
-        }
-        $msg = preg_replace('/ in \S+ on line \d+/', '', $msg);
-        $msg = preg_replace('/\s*Errors parsing .*$/', '', $msg);
-        $this->report($f, $line, 'php -l falhou: ' . $msg, 'Corrija a sintaxe antes de qualquer outra verificação.');
     }
 }

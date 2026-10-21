@@ -31,3 +31,10 @@ jobs:
       - name: Conferências de release
         if: github.event_name == 'push'
         run: php .agents/tainacan-stack/bin/tnc-check --release --format=github --fail-on=block || true
+      # Opcional: achados na aba Security > Code scanning (repositório público ou com
+      # GitHub Advanced Security). Exige `security-events: write` em permissions.
+      # - name: SARIF
+      #   run: php .agents/tainacan-stack/bin/tnc-check --diff="$BASE" --format=sarif --output=tnc-check.sarif || true
+      # - uses: github/codeql-action/upload-sarif@v3
+      #   with:
+      #     sarif_file: tnc-check.sarif

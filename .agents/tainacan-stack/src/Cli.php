@@ -25,7 +25,7 @@ Uso:
 
 Opções:
   --rules=TNC-S01,TNC-T      só estas regras (ID ou prefixo)
-  --format=text|json|md|github
+  --format=text|json|md|github|sarif   (sarif: aba Code scanning do GitHub e IDEs)
   --fail-on=warn|block       a partir de qual severidade o código de saída indica falha (padrão: warn)
   --no-baseline              ignora .tnc-check-baseline.json
   --baseline-generate        grava os achados atuais como baseline do projeto

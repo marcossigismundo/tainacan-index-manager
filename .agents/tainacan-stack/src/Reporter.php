@@ -21,6 +21,8 @@ final class Reporter
                 return self::markdown($findings, $meta);
             case 'github':
                 return self::github($findings);
+            case 'sarif':
+                return self::sarif($findings, $meta);
             default:
                 return self::text($findings, $meta);
         }
@@ -110,6 +112,57 @@ final class Reporter
             $out .= '| `' . $f->file . '` | ' . ($f->line ?: '-') . ' | ' . $f->rule . ' | ' . ($f->severity === Finding::BLOCK ? 'bloqueio' : 'aviso') . ' | ' . $msg . " |\n";
         }
         return $out;
+    }
+
+    /**
+     * SARIF 2.1.0: o GitHub (aba Security > Code scanning, via
+     * github/codeql-action/upload-sarif) e as IDEs mostram os achados na linha.
+     */
+    private static function sarif(array $findings, array $meta)
+    {
+        $rules = [];
+        $results = [];
+        $titles = [];
+        foreach (Registry::describe() as $r) {
+            $titles[$r['id']] = $r;
+        }
+        foreach ($findings as $f) {
+            if (!isset($rules[$f->rule])) {
+                $rules[$f->rule] = [
+                    'id' => $f->rule,
+                    'name' => isset($titles[$f->rule]) ? preg_replace('/\W+/', '', ucwords($titles[$f->rule]['title'])) : $f->rule,
+                    'shortDescription' => ['text' => isset($titles[$f->rule]) ? $titles[$f->rule]['title'] : $f->rule],
+                    'helpUri' => 'https://github.com/marcossigismundo/tainacan-stack-ia/blob/main/stack/tainacan-stack/licoes/' . $f->rule . '.md',
+                    'properties' => ['category' => isset($titles[$f->rule]) ? $titles[$f->rule]['category'] : ''],
+                ];
+            }
+            $results[] = [
+                'ruleId' => $f->rule,
+                'level' => $f->severity === Finding::BLOCK ? 'error' : 'warning',
+                'message' => ['text' => $f->message . ($f->hint ? ' ' . $f->hint : '')],
+                'locations' => [[
+                    'physicalLocation' => [
+                        'artifactLocation' => ['uri' => $f->file, 'uriBaseId' => '%SRCROOT%'],
+                        'region' => ['startLine' => max(1, $f->line), 'endLine' => max(1, $f->endLine)],
+                    ],
+                ]],
+                'partialFingerprints' => ['tncCheck/v1' => $f->fingerprint()],
+            ];
+        }
+        $doc = [
+            '$schema' => 'https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json',
+            'version' => '2.1.0',
+            'runs' => [[
+                'tool' => ['driver' => [
+                    'name' => 'tnc-check',
+                    'version' => isset($meta['version']) ? (string) $meta['version'] : 'dev',
+                    'informationUri' => 'https://github.com/marcossigismundo/tainacan-stack-ia',
+                    'rules' => array_values($rules),
+                ]],
+                'results' => $results,
+            ]],
+        ];
+        return json_encode($doc, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
     }
 
     private static function github(array $findings)

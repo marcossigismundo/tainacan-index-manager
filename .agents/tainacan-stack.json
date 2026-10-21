@@ -1,9 +1,9 @@
 {
-    "versao": "0.1.0",
+    "versao": "0.2.0",
     "ferramentas": [
         "claude",
         "codex"
     ],
     "ci": true,
-    "data": "2026-10-21T16:05:33Z"
+    "data": "2026-10-21T17:50:16Z"
 }

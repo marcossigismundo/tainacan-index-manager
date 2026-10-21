@@ -264,7 +264,10 @@ final class SourceFile
             $t = $this->type($i);
             if ($t === T_CONSTANT_ENCAPSED_STRING) {
                 $out .= self::unquote($this->val($i));
-            } elseif ($t === T_ENCAPSED_AND_WHITESPACE || $t === T_INLINE_HTML) {
+            } elseif ($t === T_ENCAPSED_AND_WHITESPACE) {
+                // pedaço de string com aspas duplas: desfaz os escapes mais comuns (\$ \" \\)
+                $out .= str_replace(['\\$', '\\"', '\\\\'], ['$', '"', '\\'], $this->val($i));
+            } elseif ($t === T_INLINE_HTML) {
                 $out .= $this->val($i);
             } elseif ($t === T_VARIABLE || $t === 'NAME') {
                 $out .= $this->val($i);

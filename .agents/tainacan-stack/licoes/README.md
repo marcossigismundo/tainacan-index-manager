@@ -57,6 +57,8 @@ Na coluna Severidade, "varia" indica que alguns achados da regra têm severidade
 |---|---|---|---|
 | [TNC-W03](TNC-W03.md) | Tradução sem domínio de texto ou com domínio errado | aviso | wordpress |
 | [TNC-W10](TNC-W10.md) | Armadilha de WordPress que afeta o site inteiro | aviso (varia) | wordpress |
+| [TNC-W11](TNC-W11.md) | $wpdb->prepare() com marcadores e argumentos em número diferente | aviso (varia) | wordpress |
+| [TNC-W12](TNC-W12.md) | wp_localize_script() com booleano ou número (chegam como string) | aviso | wordpress |
 
 ## convivencia
 

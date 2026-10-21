@@ -53,7 +53,12 @@ final class ProjectContext
 
     private function detectHeader()
     {
-        foreach (glob($this->root . '/*.php') ?: [] as $file) {
+        // o plugin pode estar numa subpasta declarada em "plugin_dir" (o núcleo fica em src/)
+        $candidates = glob($this->root . '/*.php') ?: [];
+        if (!empty($this->config['plugin_dir'])) {
+            $candidates = array_merge($candidates, glob($this->root . '/' . trim($this->config['plugin_dir'], '/') . '/*.php') ?: []);
+        }
+        foreach ($candidates as $file) {
             $head = (string) @file_get_contents($file, false, null, 0, 8192);
             if (!preg_match('/^[ \t\/*#@]*Plugin Name\s*:/mi', $head)) {
                 continue;
@@ -114,23 +119,40 @@ final class ProjectContext
     }
 
     /**
-     * Sobe a partir de um caminho até a raiz do projeto: o diretório com
-     * .tnc-check.json ou .git, ou o mais alto com cabeçalho de plugin.
+     * Sobe a partir de um caminho até a raiz do projeto.
+     *
+     * 1. O primeiro diretório com cabeçalho de plugin ou com .tnc-check.json
+     *    (o que vier antes) é o candidato.
+     * 2. Um .tnc-check.json acima dele só ganha se declarar "plugin_dir"
+     *    apontando para o candidato: é o caso do núcleo, com o plugin em src/
+     *    e a configuração na raiz do repositório. Sem isso, um plugin dentro
+     *    de um monorepo (wp-content versionado, fixtures) continua sendo o
+     *    próprio projeto.
+     * 3. Sem cabeçalho nem configuração: o primeiro .git, senão o diretório.
      */
     public static function findRoot($path)
     {
         $dir = is_dir($path) ? $path : dirname($path);
         $real = realpath($dir);
-        $cur = str_replace('\\', '/', $real ?: $dir);
+        $start = str_replace('\\', '/', $real ?: $dir);
+        $cur = $start;
+        $candidate = null;
+        $git = null;
         while (true) {
-            if (is_file($cur . '/.tnc-check.json') || file_exists($cur . '/.git')) {
-                return $cur;
-            }
-            foreach (glob($cur . '/*.php') ?: [] as $file) {
-                $head = (string) @file_get_contents($file, false, null, 0, 4096);
-                if (preg_match('/^[ \t\/*#@]*Plugin Name\s*:/mi', $head)) {
-                    return $cur;
+            $hasConfig = is_file($cur . '/.tnc-check.json');
+            if ($candidate === null && ($hasConfig || self::hasPluginHeader($cur))) {
+                $candidate = $cur;
+            } elseif ($candidate !== null && $hasConfig) {
+                $cfg = json_decode((string) file_get_contents($cur . '/.tnc-check.json'), true);
+                if (is_array($cfg) && !empty($cfg['plugin_dir'])) {
+                    $declared = rtrim($cur . '/' . trim(str_replace('\\', '/', $cfg['plugin_dir']), '/'), '/');
+                    if (stripos($candidate . '/', $declared . '/') === 0) {
+                        return $cur;
+                    }
                 }
+            }
+            if ($git === null && file_exists($cur . '/.git')) {
+                $git = $cur;
             }
             $parent = dirname($cur);
             if ($parent === $cur || $parent === '.' || $parent === '') {
@@ -138,6 +160,17 @@ final class ProjectContext
             }
             $cur = $parent;
         }
-        return str_replace('\\', '/', $real ?: $dir);
+        return $candidate ?: ($git ?: $start);
+    }
+
+    private static function hasPluginHeader($dir)
+    {
+        foreach (glob($dir . '/*.php') ?: [] as $file) {
+            $head = (string) @file_get_contents($file, false, null, 0, 4096);
+            if (preg_match('/^[ \t\/*#@]*Plugin Name\s*:/mi', $head)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

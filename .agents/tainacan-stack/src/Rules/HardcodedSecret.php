@@ -27,6 +27,7 @@ final class HardcodedSecret extends Rule
         'chave Google' => '/\bAIza[0-9A-Za-z_\-]{35}\b/',
         'token Slack' => '/\bxox[baprs]-[A-Za-z0-9\-]{10,}/',
         'chave privada' => '/-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/',
+        'senha em URL' => '#[a-z][a-z0-9+.-]*://[^/\s:@\'"]{1,64}:[^/\s@\'"]{4,}@[a-z0-9.-]+#i',
     ];
 
     const ASSIGN = '/(?:\$|[\'"]|\b)(?:[a-z0-9_]*?)(password|passwd|senha|secret|segredo|api_?key|apikey|access_?token|auth_?token|client_secret|private_key)[a-z0-9_]*[\'"]?\s*(?:=>|=|:)\s*([\'"])([^\'"\s]{8,})\2/i';
@@ -43,7 +44,12 @@ final class HardcodedSecret extends Rule
                 continue; // linha minificada
             }
             foreach (self::KNOWN as $label => $re) {
-                if (preg_match($re, $line)) {
+                if (preg_match($re, $line, $hit)) {
+                    // usuario:senha@host em documentação é exemplo, não credencial
+                    if ($label === 'senha em URL' && preg_match('#://([^:]+):([^@]+)@#', $hit[0], $cred)
+                        && (preg_match(self::PLACEHOLDER, $cred[1]) || preg_match(self::PLACEHOLDER, $cred[2]) || preg_match('/^(user|usuario|usuário|login|admin|elastic|root|senha|pass|password|secret|token|key|chave)$/i', $cred[2]))) {
+                        continue;
+                    }
                     $this->report($f, $n, 'Possível ' . $label . ' no código.', 'Remova do código e do histórico do git, revogue a chave e leia de variável de ambiente ou opção protegida.');
                     continue 2;
                 }

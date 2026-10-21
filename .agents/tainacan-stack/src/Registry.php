@@ -30,6 +30,8 @@ final class Registry
             Rules\SharedHookRemoval::class,
             Rules\CssGlobalSelector::class,
             Rules\WordPressPitfalls::class,
+            Rules\PreparePlaceholders::class,
+            Rules\LocalizeScriptScalars::class,
             Rules\AdminHookOutput::class,
             Rules\AdminHookInlineScript::class,
             Rules\AdminHookRegistration::class,

@@ -340,7 +340,7 @@ nos comentários do código. Pontos para quem mantém:
 
 ## Stack de IA do Tainacan (21/10/2026)
 
-Este repositório adotou a Stack de IA do Tainacan (`.agents/`, versão 0.1.0; fonte em github.com/marcossigismundo/tainacan-stack-ia). `AGENTS.md` traz as regras curtas do projeto e o bloco da stack; `CLAUDE.md` só importa `@AGENTS.md`; este arquivo continua sendo o contexto completo.
+Este repositório adotou a Stack de IA do Tainacan (`.agents/`, versão 0.2.0; fonte em github.com/marcossigismundo/tainacan-stack-ia). `AGENTS.md` traz as regras curtas do projeto e o bloco da stack; `CLAUDE.md` só importa `@AGENTS.md`; este arquivo continua sendo o contexto completo.
 
 - Verificação antes de entregar: `php .agents/tainacan-stack/bin/tnc-check --changed`. O gancho pre-commit bloqueia commit com achado de bloqueio; o CI (`.github/workflows/tnc-check.yml`) avalia só as linhas alteradas.
 - `.tnc-check-baseline.json` guarda os 26 achados que já existiam (avisos de SQL sem `prepare` com valor interno, consultas em laço e handlers sem capability). Ao corrigir um, regenere com `tnc-check --baseline-generate`.
