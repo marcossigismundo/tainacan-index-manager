@@ -41,6 +41,6 @@ jobs:
       - uses: wordpress/plugin-check-action@v1
         with:
           build-dir: ${{ github.workspace }}
-          exclude-directories: 'tools,docs,tests,.github'
+          exclude-directories: 'tools,docs,tests,.github,.agents,.claude,.claude-plugin,.codex,.cursor'
           ignore-warnings: false
           ignore-errors: false

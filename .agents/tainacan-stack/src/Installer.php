@@ -157,6 +157,7 @@ TXT;
             $this->cursor();
         }
         $this->tncConfig();
+        $this->exportIgnore();
         if ($ci) {
             $this->ciWorkflow();
         }
@@ -348,6 +349,43 @@ TXT;
         $tpl = str_replace('{{TEXT_DOMAIN}}', $ctx->textDomain ?: basename($this->target), $tpl);
         $this->write($file, $tpl);
         $this->log[] = '.tnc-check.json criado (domínio de texto: ' . ($ctx->textDomain ?: basename($this->target)) . ')';
+    }
+
+    /**
+     * A stack é ferramenta de desenvolvimento: fica fora do pacote do plugin.
+     * export-ignore tira as pastas do `git archive` (ZIP de release) e o
+     * .distignore cobre o `wp dist-archive` e o deploy para o WordPress.org.
+     */
+    private function exportIgnore()
+    {
+        $paths = ['/.agents', '/.claude', '/.claude-plugin', '/.codex', '/.cursor', '/.github/agents', '/.tnc-check.json', '/.tnc-check-baseline.json', '/AGENTS.md', '/CLAUDE.md', '/GEMINI.md'];
+        $file = $this->target . '/.gitattributes';
+        $text = is_file($file) ? (string) file_get_contents($file) : '';
+        $add = [];
+        foreach ($paths as $p) {
+            if (!preg_match('#^' . preg_quote($p, '#') . '\s+export-ignore#m', $text)) {
+                $add[] = $p . ' export-ignore';
+            }
+        }
+        if ($add) {
+            $this->write($file, rtrim($text) . ($text === '' ? '' : "\n\n") . "# Stack de IA do Tainacan: fora do pacote do plugin\n" . implode("\n", $add) . "\n");
+            $this->log[] = '.gitattributes: pastas da stack marcadas como export-ignore (fora do ZIP de release)';
+        }
+        $dist = $this->target . '/.distignore';
+        if (is_file($dist)) {
+            $d = (string) file_get_contents($dist);
+            $miss = [];
+            foreach ($paths as $p) {
+                if (strpos($d, ltrim($p, '/')) === false) {
+                    $miss[] = ltrim($p, '/');
+                }
+            }
+            if ($miss) {
+                $this->write($dist, rtrim($d) . "\n" . implode("\n", $miss) . "\n");
+                $this->log[] = '.distignore: pastas da stack acrescentadas';
+            }
+        }
+        $this->log[] = 'Lembrete: se o CI roda o Plugin Check do WordPress.org, exclua .agents,.claude,.claude-plugin,.codex,.cursor (exclude-directories).';
     }
 
     private function ciWorkflow()
