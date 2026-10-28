@@ -4,7 +4,7 @@ Tags: tainacan, elasticsearch, opensearch, search, indexing, synonyms
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.4.3
+Stable tag: 1.5.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -56,6 +56,10 @@ A busca degrada automaticamente para SQL, o semáforo fica vermelho, um alerta �
 
 
 
+= 1.5.0 =
+* Listings sorted by title can now be answered by the index. The indexer stores `title_sort`, the ICU sort key of the title (same pt_BR collator the facets use to match MySQL's utf8mb4_unicode_520_ci), and the query builder sorts on it, with `item_id` as tiebreaker. Only an index created by 1.5.0 or later, with `intl`, has the field (option `tainacan_idxmgr_index_schema`, which records the index name and the ICU version); otherwise, or after an ICU upgrade, title order keeps going to SQL until the index is recreated and reindexed.
+* Relationship values are searchable by the title of the related item (an author's name next to the number of the authority record); exact and LIKE filters keep matching the ID. Only items published in a published collection lend their title.
+* When an item is renamed, changes status or is deleted, the items pointing to it through a Relationship metadatum are requeued (found in the index by `metadata.value_ids`, up to 10,000, with a log warning above that). Items leaving auto-draft are skipped.
 = 1.4.3 =
 * Security: an anonymous request asking for a non-public `post_status` now gets the public set from the index instead of falling back to SQL — measured on 2026-10-18, Tainacan core + WP_Query still listed a private item to an anonymous `?status=private` request, so SQL was not a safe fallback for visitors. Logged-in users without the capability still fall back to SQL (own private items).
 = 1.4.2 =

@@ -891,6 +891,14 @@ final class ES_Query_Builder {
 				: array( $field => array( 'order' => $direction ) );
 		}
 
+		// Titles equal for the collation share a sort key; without a tiebreaker
+		// their order may differ between two pages of the same listing.
+		$fields = array_map( 'array_key_first', $sort );
+		$title  = array_search( 'title_sort', $fields, true );
+		if ( false !== $title && ! in_array( 'item_id', $fields, true ) ) {
+			$sort[] = array( 'item_id' => array( 'order' => $sort[ $title ]['title_sort']['order'] ) );
+		}
+
 		return $sort;
 	}
 
@@ -915,13 +923,15 @@ final class ES_Query_Builder {
 			case 'author':
 				return 'author_id';
 			case 'title':
+			case 'post_title':
 				// `title.raw` sorts by raw UTF-8 byte order. MySQL orders that column
-				// under utf8mb4_unicode_520_ci (case/accent-insensitive), which this
-				// ES cluster has no ICU plugin to reproduce — confirmed to diverge on
-				// real data. Until a collation-aware sort key is indexed, defer to SQL
-				// rather than return a differently-ordered — and therefore
-				// differently-paginated — result set.
-				return null;
+				// under utf8mb4_unicode_520_ci (case/accent-insensitive), which the
+				// cluster has no ICU plugin to reproduce — confirmed to diverge on
+				// real data. Since 1.5.0 the indexer stores the ICU sort key computed
+				// in PHP (`title_sort`); an index created before that has no such
+				// field, and sorting on a missing field would push every item to the
+				// end, so those stay with SQL (see Index_Manager::title_sort_ready()).
+				return Index_Manager::title_sort_ready() ? 'title_sort' : null;
 			default:
 				// Random, meta value, menu order and the other orderings are not modelled.
 				return null;

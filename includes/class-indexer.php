@@ -46,7 +46,103 @@ final class Indexer {
 		$this->metrics       = $metrics;
 
 		add_action( 'save_post', array( $this, 'on_save_post' ), 20, 3 );
+		add_action( 'post_updated', array( $this, 'on_post_updated' ), 20, 3 );
 		add_action( 'before_delete_post', array( $this, 'on_before_delete_post' ) );
+	}
+
+	/** Most items requeued because a record they point to changed (ES max_result_window). */
+	private const RELATED_REQUEUE_MAX = 10000;
+
+	/**
+	 * Hook: an item renamed or (un)published changes the searchable text of every
+	 * item pointing to it through a Relationship metadatum — the works of an
+	 * author whose authority record was edited.
+	 *
+	 * An item leaving `auto-draft` is new: nothing can point to it yet, and
+	 * skipping it keeps imports from paying one search per created item.
+	 *
+	 * @param int      $post_id     Post ID.
+	 * @param \WP_Post $post_after  Post after the update.
+	 * @param \WP_Post $post_before Post before the update.
+	 */
+	public function on_post_updated( $post_id, $post_after, $post_before ): void {
+		if ( ! $post_after instanceof \WP_Post || ! $post_before instanceof \WP_Post ) {
+			return;
+		}
+		if ( 'auto-draft' === $post_before->post_status ) {
+			return;
+		}
+		if ( $post_after->post_title === $post_before->post_title && $post_after->post_status === $post_before->post_status ) {
+			return;
+		}
+		if ( ! $this->is_tainacan_item_post_type( $post_after->post_type ) ) {
+			return;
+		}
+		$this->requeue_referrers( (int) $post_id );
+	}
+
+	/**
+	 * Requeue the items whose Relationship metadata point to $post_id, found in
+	 * the index itself (`metadata.value_ids`, no SQL).
+	 *
+	 * `value_ids` also holds taxonomy term IDs, so a term with the same number
+	 * requeues a few items for nothing; reindexing them is harmless. Runs in the
+	 * editor's request, hence the visitor timeout and circuit breaker: with the
+	 * cluster slow or down the names wait for the next full reindex.
+	 *
+	 * @param int $post_id Item that was renamed, (un)published or deleted.
+	 */
+	private function requeue_referrers( int $post_id ): void {
+		if ( ! $this->client->is_configured() || $this->client->live_breaker_open() ) {
+			return;
+		}
+		$index = (string) $this->settings->get( 'index_name' );
+		$res   = $this->client->search_live(
+			$index,
+			array(
+				'size'             => self::RELATED_REQUEUE_MAX,
+				'_source'          => false,
+				'track_total_hits' => true,
+				'query'            => array(
+					'nested' => array(
+						'path'  => 'metadata',
+						'query' => array( 'term' => array( 'metadata.value_ids' => $post_id ) ),
+					),
+				),
+			)
+		);
+		if ( is_wp_error( $res ) ) {
+			$this->logger->warning(
+				Logger::CHAN_INDEXER,
+				'Falha ao procurar itens que apontam para o item alterado.',
+				array(
+					'item_id' => $post_id,
+					'error'   => $res->get_error_message(),
+				)
+			);
+			return;
+		}
+		$ids = array();
+		foreach ( (array) ( $res['hits']['hits'] ?? array() ) as $hit ) {
+			if ( isset( $hit['_id'] ) && (int) $hit['_id'] !== $post_id ) {
+				$ids[] = (int) $hit['_id'];
+			}
+		}
+		$total = (int) ( $res['hits']['total']['value'] ?? 0 );
+		if ( $total > self::RELATED_REQUEUE_MAX ) {
+			$this->logger->warning(
+				Logger::CHAN_INDEXER,
+				'Mais itens apontam para o item alterado do que o limite reenfileirado; os demais esperam a próxima reindexação completa.',
+				array(
+					'item_id'  => $post_id,
+					'total'    => $total,
+					'requeued' => count( $ids ),
+				)
+			);
+		}
+		if ( ! empty( $ids ) ) {
+			$this->enqueue( $ids );
+		}
 	}
 
 	/**
@@ -102,6 +198,9 @@ final class Indexer {
 		if ( $this->client->live_breaker_open() ) {
 			return;
 		}
+		// Items naming this one (an authority record being deleted) are rebuilt
+		// later, when get_post() no longer finds it and its title drops out.
+		$this->requeue_referrers( (int) $post_id );
 		$index = (string) $this->settings->get( 'index_name' );
 		$res   = $this->client->delete_document( $index, (string) $post_id );
 		if ( is_wp_error( $res ) ) {
@@ -649,6 +748,10 @@ final class Indexer {
 		if ( is_string( $date_modified ) && '' !== $date_modified ) {
 			$doc['date_modified'] = $date_modified;
 		}
+		$title_sort = self::title_sort_key( (string) $post->post_title );
+		if ( null !== $title_sort ) {
+			$doc['title_sort'] = $title_sort;
+		}
 
 		$taxes = get_object_taxonomies( $post->post_type, 'objects' );
 		foreach ( $taxes as $tax_slug => $tax_obj ) {
@@ -718,7 +821,7 @@ final class Indexer {
 							// the first.
 							$parsed = $this->flatten_metadata_value( $value, $mtype );
 
-							$entry['value_text']    = implode( ' | ', $parsed['texts'] );
+							$entry['value_text']    = implode( ' | ', $parsed['labels'] );
 							$entry['value_keyword'] = $parsed['texts'];
 							if ( ! empty( $parsed['ids'] ) ) {
 								$entry['value_ids'] = $parsed['ids'];
@@ -898,15 +1001,22 @@ final class Indexer {
 	 * filter translation need the IDs, so they are extracted here rather than being
 	 * flattened away into strings.
 	 *
+	 * `labels` is what the text search and LIKE filters read (`value_text`): the
+	 * same as `texts`, plus, for a Relationship stored as a bare item ID, the
+	 * title of that item — the author's name next to the number of the authority
+	 * record. The ID stays, so a LIKE filter by ID matches as it did in SQL.
+	 *
 	 * @param mixed  $value Raw value from Item_Metadata::get_value().
 	 * @param string $mtype Fully qualified Tainacan metadata type, when known.
-	 * @return array{texts: string[], ids: int[]}
+	 * @return array{texts: string[], labels: string[], ids: int[]}
 	 */
 	private function flatten_metadata_value( $value, string $mtype = '' ): array {
-		$texts = array();
-		$ids   = array();
+		$texts     = array();
+		$ids       = array();
+		$relations = array();
 
-		$is_entity_backed = ( false !== strpos( $mtype, 'Taxonomy' ) || false !== strpos( $mtype, 'Relationship' ) );
+		$is_relationship  = false !== strpos( $mtype, 'Relationship' );
+		$is_entity_backed = ( false !== strpos( $mtype, 'Taxonomy' ) || $is_relationship );
 
 		$items = is_array( $value ) ? $value : ( null === $value ? array() : array( $value ) );
 
@@ -946,6 +1056,9 @@ final class Indexer {
 				// For Taxonomy/Relationship metadata a bare numeric value *is* the entity ID.
 				if ( $is_entity_backed && ctype_digit( $sv ) ) {
 					$ids[] = (int) $sv;
+					if ( $is_relationship ) {
+						$relations[] = $sv;
+					}
 				}
 				continue;
 			}
@@ -958,10 +1071,66 @@ final class Indexer {
 			}
 		}
 
+		$labels = $texts;
+		if ( ! empty( $relations ) ) {
+			foreach ( array_unique( $relations ) as $related_id ) {
+				$title = $this->related_item_label( (int) $related_id );
+				if ( '' !== $title ) {
+					$labels[] = $title;
+				}
+			}
+		}
+
 		return array(
-			'texts' => array_values( array_unique( $texts ) ),
-			'ids'   => array_values( array_unique( $ids ) ),
+			'texts'  => array_values( array_unique( $texts ) ),
+			'labels' => array_values( array_unique( $labels ) ),
+			'ids'    => array_values( array_unique( $ids ) ),
 		);
+	}
+
+	/**
+	 * Title of the item a Relationship value points to, for the text search.
+	 *
+	 * Only a published Tainacan item of a published collection lends its title:
+	 * the index must not let a visitor find a work by the name of a record they
+	 * cannot see (a private collection keeps its items as `publish`). When that
+	 * item is renamed, unpublished or deleted, requeue_referrers() requeues the
+	 * items pointing to it.
+	 *
+	 * @param int $related_id Item ID stored as the Relationship value.
+	 */
+	private function related_item_label( int $related_id ): string {
+		// One get_post() per distinct record: with a persistent object cache the
+		// records shared by many works come from memory; without one, a cold
+		// full reindex pays one primary-key SELECT per distinct record.
+		$related = get_post( $related_id );
+		if ( ! $related instanceof \WP_Post || 'publish' !== $related->post_status ) {
+			return '';
+		}
+		if ( ! preg_match( '/^tnc_col_(\d+)_item$/', $related->post_type, $m ) || 'publish' !== get_post_status( (int) $m[1] ) ) {
+			return '';
+		}
+		return (string) $related->post_title;
+	}
+
+	/**
+	 * Collation sort key of a title, hex-encoded.
+	 *
+	 * An ES keyword sort compares bytes; the hex of the ICU sort key keeps the
+	 * key's byte order, which is the collation order. The collator is the one
+	 * the facets already use to reproduce MySQL's utf8mb4_unicode_520_ci order,
+	 * and trailing spaces are dropped because that collation pads them away.
+	 *
+	 * @param string $title Item title.
+	 * @return string|null Null without the `intl` extension.
+	 */
+	public static function title_sort_key( string $title ): ?string {
+		$collator = Facets_Integration::collator();
+		if ( ! $collator instanceof \Collator ) {
+			return null;
+		}
+		$key = $collator->getSortKey( rtrim( mb_substr( $title, 0, 500 ), ' ' ) );
+		return is_string( $key ) ? bin2hex( $key ) : null;
 	}
 
 	/**

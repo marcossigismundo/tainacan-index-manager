@@ -240,6 +240,28 @@ O Tainacan endereça metadados por **ID**, não por slug, e filtra taxonomia por
 | `metadata.value_keyword` | **Todos** os valores (array), para filtro exato e agregação |
 | `metadata.value_ids` | Entidades por trás de Taxonomy/Relationship |
 | `taxonomies.term_ids` | Alvo do `tax_query` |
+| `metadata.value_text` | Busca por texto e filtro LIKE. Em Relationship guarda o ID **e** o título do item ligado, se ele estiver publicado numa coleção publicada (1.5.0) |
+| `title_sort` | Chave de ordenação ICU do título, em hexadecimal (1.5.0). Só índices criados pela 1.5.0 ou depois a têm |
+
+> **Ordenar por título (1.5.0).** O MariaDB ordena `post_title` pela collation
+> `utf8mb4_unicode_520_ci`; o ES compara bytes. O indexador grava a chave de
+> ordenação do mesmo `Collator` pt_BR que as facetas usam
+> (`Facets_Integration::collator()`), e a ordem dos bytes da chave em hexadecimal é
+> a ordem da collation. A opção `tainacan_idxmgr_index_schema` (gravada ao criar o
+> índice, com o nome do índice e a versão do ICU) diz se o índice tem o campo.
+> `Index_Manager::title_sort_ready()` só deixa a ordenação por título ir ao índice
+> quando o registro é do índice configurado e o ICU do PHP é o mesmo que gerou as
+> chaves; senão vai ao SQL até o índice ser recriado e reindexado. **O PHP do cron/
+> WP-CLI e o do site precisam ter `intl`** (sem ela o índice nem registra o campo).
+> Empate (títulos iguais para a collation) é desfeito por `item_id`; o SQL do núcleo
+> não desempata, então a ordem dentro de um empate pode diferir da do SQL.
+>
+> **Nome do registro ligado (1.5.0).** Quando o item ligado muda de título ou de
+> situação, ou é excluído, `Indexer::requeue_referrers()` acha no próprio índice quem
+> aponta para ele (`metadata.value_ids`, até 10 mil; acima disso registra aviso) e
+> reenfileira. Termos de taxonomia também estão em `value_ids`, então um termo com o
+> mesmo número reindexa alguns itens à toa. Excluir milhares de itens de uma vez
+> custa uma consulta curta ao ES por item.
 
 > `value_keyword` guardava apenas o primeiro valor (`$flat[0]`) até a 1.2.0, então
 > metadados multivalorados perdiam silenciosamente todos os demais em filtros e
@@ -507,7 +529,7 @@ A `Indexer_Metrics` registra cada batch e expõe:
 - O vocabulário vale para a busca por texto; filtros e facetas continuam exatos (por valor).
 - Quem buscar **só** palavras da lista de palavras ignoradas não encontra nada (o ES não sobra termo nenhum para procurar).
 - Facetas de metadados **Taxonomy, Relationship, User e Control** continuam em SQL: resolvem rótulos em outras tabelas e, no caso de taxonomia, dependem de hierarquia (`parent`, `total_children`, `hierarchy_path`) que o índice não modela.
-- Ordenação por metadado (`meta_value`, `meta_value_num`) e `orderby=rand` caem para SQL.
+- Ordenação por metadado (`meta_value`, `meta_value_num`) e `orderby=rand` caem para SQL. Ordenação por título só é roteada em índice criado pela 1.5.0 ou depois.
 - Paginação além de `index.max_result_window` (10.000 por padrão) cai para SQL.
 - Consultas sem paginação (`posts_per_page = -1` / `nopaging`), típicas de exportação, caem para SQL de propósito.
 - A descoberta de post types de coleções é cacheada por request; se uma coleção for criada no meio de uma request, talvez não apareça imediatamente.
