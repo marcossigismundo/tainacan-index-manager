@@ -530,6 +530,7 @@ A `Indexer_Metrics` registra cada batch e expõe:
 - Quem buscar **só** palavras da lista de palavras ignoradas não encontra nada (o ES não sobra termo nenhum para procurar).
 - Facetas de metadados **Taxonomy, Relationship, User e Control** continuam em SQL: resolvem rótulos em outras tabelas e, no caso de taxonomia, dependem de hierarquia (`parent`, `total_children`, `hierarchy_path`) que o índice não modela.
 - Ordenação por metadado (`meta_value`, `meta_value_num`) e `orderby=rand` caem para SQL. Ordenação por título só é roteada em índice criado pela 1.5.0 ou depois.
+- Consulta que filtra por variável que o tradutor não modela (`meta_key`/`meta_value` soltos, `date_query`, `post_parent`, `title`, termo passado como variável de taxonomia…) cai para SQL (1.5.0). O Tainacan põe `sentence=true` em toda listagem: busca **com texto** vinda do Tainacan cai para SQL (a frase inteira não é o E de palavras do índice); navegação, paginação e filtros sem texto continuam no índice.
 - Paginação além de `index.max_result_window` (10.000 por padrão) cai para SQL.
 - Consultas sem paginação (`posts_per_page = -1` / `nopaging`), típicas de exportação, caem para SQL de propósito.
 - A descoberta de post types de coleções é cacheada por request; se uma coleção for criada no meio de uma request, talvez não apareça imediatamente.
