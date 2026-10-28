@@ -360,9 +360,12 @@ final class Facets_Integration {
 	/**
 	 * ICU collator for pt_BR, or null when the `intl` extension is unavailable.
 	 *
+	 * Public because the indexer derives the title sort key from the same
+	 * collator (Indexer::title_sort_key()): facets and listings order alike.
+	 *
 	 * @return \Collator|null
 	 */
-	private static function collator() {
+	public static function collator() {
 		static $collator = false;
 
 		if ( false === $collator ) {

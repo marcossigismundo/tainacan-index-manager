@@ -30,6 +30,21 @@ final class Index_Manager {
 	 */
 	public const MAPPING_VERSION = 1;
 
+	/**
+	 * Fields this plugin added for its own queries, on top of MAPPING_VERSION.
+	 * 2 = `title_sort` (1.5.0). Adding a field does not break the siblings, so
+	 * MAPPING_VERSION stays; what changes is whether THIS plugin may sort on it,
+	 * which only holds for an index created with the field in its mapping.
+	 */
+	public const INDEX_SCHEMA = 2;
+
+	/**
+	 * What the index was created with: `index` (name), `schema` and `icu`
+	 * (INTL_ICU_VERSION of the PHP that created it). Absent = an index older
+	 * than 1.5.0, or one created without `intl`.
+	 */
+	public const INDEX_SCHEMA_OPTION = 'tainacan_idxmgr_index_schema';
+
 	private Settings $settings;
 	private Logger $logger;
 	private Elasticsearch_Client $client;
@@ -86,6 +101,12 @@ final class Index_Manager {
 						'fields'          => array(
 							'raw' => array( 'type' => 'keyword' ),
 						),
+					),
+					// ICU sort key of the title, hex-encoded (see Indexer::title_sort_key()):
+					// byte order of the key = collation order, which `title.raw` is not.
+					'title_sort'      => array(
+						'type'  => 'keyword',
+						'index' => false,
 					),
 					'description'     => array(
 						'type'            => 'text',
@@ -258,8 +279,57 @@ final class Index_Manager {
 		if ( is_wp_error( $res ) ) {
 			return $res;
 		}
+		// Without intl the documents get no `title_sort`, so the index must not
+		// claim the field. Autoloaded: the query builder reads it on every
+		// routed listing.
+		if ( Facets_Integration::collator() instanceof \Collator ) {
+			update_option(
+				self::INDEX_SCHEMA_OPTION,
+				array(
+					'index'  => $index,
+					'schema' => self::INDEX_SCHEMA,
+					'icu'    => defined( 'INTL_ICU_VERSION' ) ? (string) INTL_ICU_VERSION : '',
+				),
+				true
+			);
+		} else {
+			delete_option( self::INDEX_SCHEMA_OPTION );
+		}
 		$this->logger->info( Logger::CHAN_INDEXER, 'Índice criado.', array( 'index' => $index ) );
 		return true;
+	}
+
+	/**
+	 * Schema of the index currently configured: what this plugin may rely on
+	 * when querying it. 1 when the record belongs to another index name (the
+	 * setting was pointed elsewhere) or is missing.
+	 */
+	public static function index_schema(): int {
+		$record = get_option( self::INDEX_SCHEMA_OPTION );
+		if ( ! is_array( $record ) ) {
+			return 1;
+		}
+		$all = Settings::all();
+		if ( (string) ( $record['index'] ?? '' ) !== (string) ( $all['index_name'] ?? '' ) ) {
+			return 1;
+		}
+		return (int) ( $record['schema'] ?? 1 );
+	}
+
+	/**
+	 * Whether a title ordering can be answered by the index: the index has
+	 * `title_sort`, and this PHP computes sort keys with the same ICU that
+	 * built them. Keys from different ICU versions are not comparable, so after
+	 * a PHP/ICU upgrade title ordering goes back to SQL until the index is
+	 * recreated and reindexed.
+	 */
+	public static function title_sort_ready(): bool {
+		if ( self::index_schema() < 2 || ! Facets_Integration::collator() instanceof \Collator ) {
+			return false;
+		}
+		$record = get_option( self::INDEX_SCHEMA_OPTION );
+		$icu    = defined( 'INTL_ICU_VERSION' ) ? (string) INTL_ICU_VERSION : '';
+		return is_array( $record ) && (string) ( $record['icu'] ?? '' ) === $icu;
 	}
 
 	/**
@@ -281,6 +351,7 @@ final class Index_Manager {
 		if ( is_wp_error( $res ) ) {
 			return $res;
 		}
+		delete_option( self::INDEX_SCHEMA_OPTION );
 		$this->logger->info( Logger::CHAN_INDEXER, 'Índice apagado.', array( 'index' => $index ) );
 		return true;
 	}

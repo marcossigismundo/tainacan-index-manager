@@ -29,6 +29,7 @@ function tainacan_idxmgr_uninstall_site(): void {
 	delete_option( 'tainacan_idxmgr_metrics' );
 	delete_option( \TainacanIndexManager\Elasticsearch_Client::LIVE_BREAKER_OPTION );
 	delete_option( \TainacanIndexManager\Plugin::DB_VERSION_OPTION );
+	delete_option( \TainacanIndexManager\Index_Manager::INDEX_SCHEMA_OPTION );
 	delete_option( \TainacanIndexManager\Search_Vocabulary::OPTION );
 	delete_option( \TainacanIndexManager\Traffic_Light::OPTION );
 
