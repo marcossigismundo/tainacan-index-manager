@@ -33,6 +33,15 @@ final class ES_Query_Builder {
 	 * @return array|null ES bool query, or null when it cannot be translated faithfully.
 	 */
 	public static function build( \WP_Query $query, array $post_types ): ?array {
+		// Only the vars below reach the builder. A query that also filters by
+		// something else (a loose meta_key/meta_value pair, a date, a parent, an
+		// exact title) would get the wider set back from the index, so it stays
+		// with SQL.
+		foreach ( self::UNMODELED_QUERY_VARS as $var ) {
+			if ( ! empty( $query->get( $var ) ) ) {
+				return null;
+			}
+		}
 		return self::build_from_args(
 			array(
 				'post_type'    => $query->get( 'post_type' ),
@@ -50,6 +59,57 @@ final class ES_Query_Builder {
 			$post_types
 		);
 	}
+
+	/**
+	 * WP_Query vars that narrow the result set but are not translated. Any of
+	 * them set sends the query to SQL (see build()). `post_parent` = 0 is left
+	 * alone by empty(): Tainacan items are all top-level, so it narrows nothing.
+	 */
+	private const UNMODELED_QUERY_VARS = array(
+		'meta_key',
+		'meta_value',
+		'meta_value_num',
+		'meta_compare',
+		'date_query',
+		'm',
+		'year',
+		'monthnum',
+		'day',
+		'w',
+		'hour',
+		'minute',
+		'second',
+		'post_parent',
+		'post_parent__in',
+		'post_parent__not_in',
+		'post_name__in',
+		'name',
+		'pagename',
+		'title',
+		'author_name',
+		'author__in',
+		'author__not_in',
+		'cat',
+		'category_name',
+		'category__in',
+		'category__and',
+		'category__not_in',
+		'tag',
+		'tag_id',
+		'tag__in',
+		'tag__and',
+		'tag__not_in',
+		'tag_slug__in',
+		'tag_slug__and',
+		'sentence',
+		'exact',
+		'has_password',
+		'post_password',
+		'comment_count',
+		'menu_order',
+		'post_mime_type',
+		'search_columns',
+	);
 
 	/**
 	 * Query vars that change which items match, and that this builder translates.
