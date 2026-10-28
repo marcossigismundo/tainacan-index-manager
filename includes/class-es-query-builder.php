@@ -33,22 +33,8 @@ final class ES_Query_Builder {
 	 * @return array|null ES bool query, or null when it cannot be translated faithfully.
 	 */
 	public static function build( \WP_Query $query, array $post_types ): ?array {
-		// Only the vars below reach the builder. A query that also filters by
-		// something else (a loose meta_key/meta_value pair, a date, a parent, an
-		// exact title) would get the wider set back from the index, so it stays
-		// with SQL.
-		$has_search = '' !== trim( (string) $query->get( 's' ) );
-		foreach ( self::UNMODELED_QUERY_VARS as $var ) {
-			// `sentence`/`exact` only change how `s` matches. Tainacan sets
-			// sentence=true on every listing: a whole-phrase LIKE that the
-			// word-by-word text query does not reproduce, so a search keeps going
-			// to SQL while browsing and filtering without text still route.
-			if ( ! $has_search && in_array( $var, array( 'sentence', 'exact' ), true ) ) {
-				continue;
-			}
-			if ( ! empty( $query->get( $var ) ) ) {
-				return null;
-			}
+		if ( self::has_untranslated_filters( $query ) ) {
+			return null;
 		}
 		return self::build_from_args(
 			array(
@@ -69,11 +55,86 @@ final class ES_Query_Builder {
 	}
 
 	/**
+	 * Does the query narrow the result by something build() does not pass on?
+	 *
+	 * Only the vars handed to build_from_args() reach the index. Anything else
+	 * that narrows the set in SQL (a loose meta_key/meta_value pair, a date, a
+	 * parent, a term given as a taxonomy query var) would come back wider from
+	 * the index, so such a query stays with SQL.
+	 */
+	private static function has_untranslated_filters( \WP_Query $query ): bool {
+		$s = (string) $query->get( 's' );
+		// A whitespace-only search is still a LIKE in SQL; the builder drops it.
+		if ( '' !== $s && '' === trim( $s ) ) {
+			return true;
+		}
+
+		foreach ( self::UNMODELED_QUERY_VARS as $var ) {
+			$value = $query->get( $var );
+			if ( in_array( $var, array( 'sentence', 'exact' ), true ) ) {
+				// They only change how `s` matches. Tainacan sets sentence=true on
+				// every listing: a whole-phrase LIKE that the word-by-word text
+				// query does not reproduce, so a search goes to SQL while browsing
+				// and filtering without text still route.
+				if ( '' !== $s && ! empty( $value ) ) {
+					return true;
+				}
+				continue;
+			}
+			if ( in_array( $var, self::ZERO_MEANS_UNSET, true ) ) {
+				if ( ! empty( $value ) ) {
+					return true;
+				}
+				continue;
+			}
+			// '0' and false are real filters here (meta_value '0',
+			// has_password false), so only the unset shapes count as empty.
+			if ( null !== $value && '' !== $value && array() !== $value ) {
+				return true;
+			}
+		}
+
+		// WP turns `author` into `author__in` before posts_pre_query; that one is
+		// translated (author_id). Any other author__in is not.
+		$author    = (int) $query->get( 'author' );
+		$author_in = array_values( array_map( 'intval', (array) $query->get( 'author__in' ) ) );
+		if ( ! empty( $author_in ) && ! ( $author > 0 && array( $author ) === $author_in ) ) {
+			return true;
+		}
+
+		// Terms given as taxonomy query vars (`tnc_tax_12=slug`, `taxonomy` +
+		// `term`, category/tag vars) land in the parsed tax query but not in the
+		// `tax_query` var the builder reads.
+		if ( $query->tax_query instanceof \WP_Tax_Query
+			&& self::count_clauses( (array) $query->tax_query->queries ) > self::count_clauses( (array) $query->get( 'tax_query' ) ) ) {
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Clauses at the top level of a tax/meta query array (without `relation`).
+	 *
+	 * @param array $queries Query array.
+	 */
+	private static function count_clauses( array $queries ): int {
+		return count( array_diff_key( $queries, array( 'relation' => true ) ) );
+	}
+
+	/**
+	 * Vars WP parses to 0 when absent: there, 0 means "not set". `post_parent`
+	 * 0 narrows to top-level posts, and Tainacan items are all top-level.
+	 */
+	private const ZERO_MEANS_UNSET = array( 'm', 'year', 'monthnum', 'day', 'w', 'hour', 'minute', 'second', 'post_parent', 'cat', 'tag_id' );
+
+	/**
 	 * WP_Query vars that narrow the result set but are not translated. Any of
-	 * them set sends the query to SQL (see build()). `post_parent` = 0 is left
-	 * alone by empty(): Tainacan items are all top-level, so it narrows nothing.
-	 * `meta_compare` is absent on purpose: Tainacan always sets it to '=', and
-	 * without `meta_key` it filters nothing.
+	 * them set sends the query to SQL (see has_untranslated_filters()).
+	 * Absent on purpose: `meta_compare` (Tainacan always sets '=', and without
+	 * `meta_key` it filters nothing), `author__in` (handled above), and the
+	 * single-post vars `name`/`pagename`/`post_name__in`, which
+	 * Search_Integration::is_single_post_lookup() already sends to SQL.
 	 */
 	private const UNMODELED_QUERY_VARS = array(
 		'meta_key',
@@ -91,12 +152,8 @@ final class ES_Query_Builder {
 		'post_parent',
 		'post_parent__in',
 		'post_parent__not_in',
-		'post_name__in',
-		'name',
-		'pagename',
 		'title',
 		'author_name',
-		'author__in',
 		'author__not_in',
 		'cat',
 		'category_name',
