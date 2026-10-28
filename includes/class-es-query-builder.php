@@ -37,7 +37,15 @@ final class ES_Query_Builder {
 		// something else (a loose meta_key/meta_value pair, a date, a parent, an
 		// exact title) would get the wider set back from the index, so it stays
 		// with SQL.
+		$has_search = '' !== trim( (string) $query->get( 's' ) );
 		foreach ( self::UNMODELED_QUERY_VARS as $var ) {
+			// `sentence`/`exact` only change how `s` matches. Tainacan sets
+			// sentence=true on every listing: a whole-phrase LIKE that the
+			// word-by-word text query does not reproduce, so a search keeps going
+			// to SQL while browsing and filtering without text still route.
+			if ( ! $has_search && in_array( $var, array( 'sentence', 'exact' ), true ) ) {
+				continue;
+			}
 			if ( ! empty( $query->get( $var ) ) ) {
 				return null;
 			}
@@ -64,12 +72,13 @@ final class ES_Query_Builder {
 	 * WP_Query vars that narrow the result set but are not translated. Any of
 	 * them set sends the query to SQL (see build()). `post_parent` = 0 is left
 	 * alone by empty(): Tainacan items are all top-level, so it narrows nothing.
+	 * `meta_compare` is absent on purpose: Tainacan always sets it to '=', and
+	 * without `meta_key` it filters nothing.
 	 */
 	private const UNMODELED_QUERY_VARS = array(
 		'meta_key',
 		'meta_value',
 		'meta_value_num',
-		'meta_compare',
 		'date_query',
 		'm',
 		'year',
